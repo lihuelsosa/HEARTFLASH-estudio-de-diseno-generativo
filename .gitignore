@@ -1,0 +1,6 @@
+.vercel
+node_modules/
+*.zip
+*.log
+dist/
+build/
