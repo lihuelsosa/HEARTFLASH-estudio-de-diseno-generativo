@@ -67,22 +67,32 @@
     }
 
     beginPath() {
-      this.currentPath = '';
+      // Short-circuit if element budget already reached
+      if (this.elements.length + this.overlayElements.length >= drawPerf.elementBudget) {
+        this.currentPath = null;
+      } else {
+        this.currentPath = '';
+      }
     }
 
     moveTo(x, y) {
       if (this.currentPath === null) this.beginPath();
-      this.currentPath += ` M ${x.toFixed(2)} ${y.toFixed(2)}`;
+      if (this.currentPath === null) return;
+      if (this.currentPath.length > drawPerf.pathBudget) return;
+      this.currentPath += ` M ${x.toFixed(1)} ${y.toFixed(1)}`;
     }
 
     lineTo(x, y) {
       if (this.currentPath === null) this.beginPath();
-      this.currentPath += ` L ${x.toFixed(2)} ${y.toFixed(2)}`;
+      if (this.currentPath === null) return;
+      if (this.currentPath.length > drawPerf.pathBudget) return;
+      this.currentPath += ` L ${x.toFixed(1)} ${y.toFixed(1)}`;
     }
 
     quadraticCurveTo(cpx, cpy, x, y) {
       if (this.currentPath === null) this.beginPath();
-      this.currentPath += ` Q ${cpx.toFixed(2)} ${cpy.toFixed(2)}, ${x.toFixed(2)} ${y.toFixed(2)}`;
+      if (this.currentPath === null) return;
+      this.currentPath += ` Q ${cpx.toFixed(1)} ${cpy.toFixed(1)}, ${x.toFixed(1)} ${y.toFixed(1)}`;
     }
 
     closePath() {
@@ -127,6 +137,7 @@
 
     stroke() {
       if (this.currentPath) {
+        if (this.elements.length + this.overlayElements.length >= drawPerf.elementBudget) return;
         const pathNode = `<path d="${this.currentPath}" ${this._getAttrs(false, true)} />`;
         if (this.isDrawingOverlay) {
           this.overlayElements.push(pathNode);
@@ -138,6 +149,7 @@
 
     fill() {
       if (this.currentPath) {
+        if (this.elements.length + this.overlayElements.length >= drawPerf.elementBudget) return;
         const pathNode = `<path d="${this.currentPath}" ${this._getAttrs(true, false)} />`;
         if (this.isDrawingOverlay) {
           this.overlayElements.push(pathNode);
@@ -148,17 +160,31 @@
     }
 
     rect(x, y, w, h) {
-      this.moveTo(x, y);
-      this.lineTo(x + w, y);
-      this.lineTo(x + w, y + h);
-      this.lineTo(x, y + h);
+      let nx = x;
+      let ny = y;
+      let nw = w;
+      let nh = h;
+      if (nw < 0) { nx += nw; nw = -nw; }
+      if (nh < 0) { ny += nh; nh = -nh; }
+      this.moveTo(nx, ny);
+      this.lineTo(nx + nw, ny);
+      this.lineTo(nx + nw, ny + nh);
+      this.lineTo(nx, ny + nh);
       this.closePath();
     }
 
     fillRect(x, y, w, h) {
+      let nx = x;
+      let ny = y;
+      let nw = w;
+      let nh = h;
+      if (nw < 0) { nx += nw; nw = -nw; }
+      if (nh < 0) { ny += nh; nh = -nh; }
+      if (nw <= 0 || nh <= 0) return;
+
       let fill = this.state.fillStyle;
       if (fill && typeof fill === 'object' && fill.isVignette) {
-        const rectNode = `<rect x="${x.toFixed(2)}" y="${y.toFixed(2)}" width="${w.toFixed(2)}" height="${h.toFixed(2)}" fill="url(#vignette-grad)" pointer-events="none" />`;
+        const rectNode = `<rect x="${nx.toFixed(1)}" y="${ny.toFixed(1)}" width="${nw.toFixed(1)}" height="${nh.toFixed(1)}" fill="url(#vignette-grad)" pointer-events="none" />`;
         if (this.isDrawingOverlay) {
           this.overlayElements.push(rectNode);
         } else {
@@ -166,7 +192,7 @@
         }
         return;
       }
-      const rectNode = `<rect x="${x.toFixed(2)}" y="${y.toFixed(2)}" width="${w.toFixed(2)}" height="${h.toFixed(2)}" ${this._getAttrs(true, false)} />`;
+      const rectNode = `<rect x="${nx.toFixed(1)}" y="${ny.toFixed(1)}" width="${nw.toFixed(1)}" height="${nh.toFixed(1)}" ${this._getAttrs(true, false)} />`;
       if (this.isDrawingOverlay) {
         this.overlayElements.push(rectNode);
       } else {
@@ -175,7 +201,15 @@
     }
 
     strokeRect(x, y, w, h) {
-      const rectNode = `<rect x="${x.toFixed(2)}" y="${y.toFixed(2)}" width="${w.toFixed(2)}" height="${h.toFixed(2)}" ${this._getAttrs(false, true)} />`;
+      let nx = x;
+      let ny = y;
+      let nw = w;
+      let nh = h;
+      if (nw < 0) { nx += nw; nw = -nw; }
+      if (nh < 0) { ny += nh; nh = -nh; }
+      if (nw <= 0 || nh <= 0) return;
+
+      const rectNode = `<rect x="${nx.toFixed(1)}" y="${ny.toFixed(1)}" width="${nw.toFixed(1)}" height="${nh.toFixed(1)}" ${this._getAttrs(false, true)} />`;
       if (this.isDrawingOverlay) {
         this.overlayElements.push(rectNode);
       } else {
@@ -185,6 +219,8 @@
 
     arc(x, y, r, startAngle, endAngle, anticlockwise = false) {
       if (this.currentPath === null) this.beginPath();
+      if (this.currentPath === null) return;
+      if (this.currentPath.length > drawPerf.pathBudget) return;
       const startX = x + r * Math.cos(startAngle);
       const startY = y + r * Math.sin(startAngle);
       const endX = x + r * Math.cos(endAngle);
@@ -200,7 +236,7 @@
       if (isFullCircle) {
         const mx = x + r * Math.cos(startAngle + Math.PI);
         const my = y + r * Math.sin(startAngle + Math.PI);
-        this.currentPath += ` A ${r.toFixed(2)} ${r.toFixed(2)} 0 1 1 ${mx.toFixed(2)} ${my.toFixed(2)} A ${r.toFixed(2)} ${r.toFixed(2)} 0 1 1 ${startX.toFixed(2)} ${startY.toFixed(2)}`;
+        this.currentPath += ` A ${r.toFixed(1)} ${r.toFixed(1)} 0 1 1 ${mx.toFixed(1)} ${my.toFixed(1)} A ${r.toFixed(1)} ${r.toFixed(1)} 0 1 1 ${startX.toFixed(1)} ${startY.toFixed(1)}`;
       } else {
         let diff = endAngle - startAngle;
         if (anticlockwise) {
@@ -210,11 +246,12 @@
         }
         const largeArcFlag = Math.abs(diff) > Math.PI ? 1 : 0;
         const sweepFlag = anticlockwise ? 0 : 1;
-        this.currentPath += ` A ${r.toFixed(2)} ${r.toFixed(2)} 0 ${largeArcFlag} ${sweepFlag} ${endX.toFixed(2)} ${endY.toFixed(2)}`;
+        this.currentPath += ` A ${r.toFixed(1)} ${r.toFixed(1)} 0 ${largeArcFlag} ${sweepFlag} ${endX.toFixed(1)} ${endY.toFixed(1)}`;
       }
     }
 
     fillText(text, x, y) {
+      if (this.elements.length + this.overlayElements.length >= drawPerf.elementBudget) return;
       const textStr = text !== undefined && text !== null ? String(text) : '';
       const escapedText = textStr
         .replace(/&/g, '&amp;')
@@ -239,7 +276,7 @@
         fontFamily = this.state.font;
       }
 
-      const textNode = `<text x="${x.toFixed(2)}" y="${y.toFixed(2)}" font-family="${fontFamily}" font-size="${fontSize}" font-weight="${fontWeight}" text-anchor="${anchor}" ${this._getAttrs(true, false)}>${escapedText}</text>`;
+      const textNode = `<text x="${x.toFixed(1)}" y="${y.toFixed(1)}" font-family="${fontFamily}" font-size="${fontSize}" font-weight="${fontWeight}" text-anchor="${anchor}" ${this._getAttrs(true, false)}>${escapedText}</text>`;
       if (this.isDrawingOverlay) {
         this.overlayElements.push(textNode);
       } else {
@@ -333,6 +370,17 @@
   };
 
   const customFontDataUrls = [];
+
+  // ── Adaptive frame budget ─────────────────────────────────────────────────
+  // Tracks rolling-average draw time and adjusts complexity to target 60 FPS.
+  // Budgets are only enforced during animation; static draws always use max.
+  const drawPerf = {
+    rollingMs: 12,
+    maxPasses: 3,
+    elementBudget: 1500,
+    pathBudget: 10000,
+    grainOctaves: 4,
+  };
 
   // Bases for organic parameter modulation (oscillating around active slider settings)
   const animBases = {
@@ -1141,6 +1189,8 @@
       offCtx.strokeRect(-cw / 2, -ch / 2, cw, ch);
       
       const drawSiliconWafer = (x, y, w, h, depth) => {
+        // Bail out early if element budget is full
+        if (offCtx.elements.length + offCtx.overlayElements.length >= drawPerf.elementBudget) return;
         // Stop condition based on size and randomness
         if (depth > 2 || w < grid * 1.6 || h < grid * 1.6 || (depth > 0 && rng() < 0.25)) {
           // Draw cell content: either a grid of pads, a circuit bus, or trace lines
@@ -1912,8 +1962,8 @@
     const c = comp || buildComposition(W, H);
     
     const numEl = isDetailPass
-      ? rngInt(5, 10 + state.density * 1.5)
-      : rngInt(12 + state.density * 2.5, 30 + state.density * 5);
+      ? rngInt(5, Math.min(10 + state.density * 1.5, 18))
+      : rngInt(12 + state.density * 2.5, Math.min(30 + state.density * 5, 35));
     const cFactor = state.chaos / 30.0;
 
     for (let i = 0; i < numEl; i++) {
@@ -1959,7 +2009,7 @@
       const dd = -2.63 + Math.cos(t * 0.04 - i * 2) * 0.2;
       
       let attX = 0.1, attY = 0.1;
-      const attSteps = 150 + Math.floor(state.complexity * 4);
+      const attSteps = Math.min(150 + Math.floor(state.complexity * 4), 200);
       const attScale = orbitR * 0.45;
       for (let step = 0; step < attSteps; step++) {
         const nextX = Math.sin(da * attY) - Math.cos(db * attX);
@@ -3737,7 +3787,8 @@
 
     // Detail passes — same canvas, layered on top, varying crop/position
     // Each pass uses a sub-region of the composition (translate + clip to a cell)
-    const numPasses = Math.floor(biasedDensity * 0.3) + Math.floor(biasedComplexity * 0.3);
+    const passCap = state.animating ? drawPerf.maxPasses : 4;
+    const numPasses = Math.min(Math.floor(biasedDensity * 0.3) + Math.floor(biasedComplexity * 0.3), passCap);
     for (let i = 0; i < numPasses; i++) {
       offCtx.save();
       seedRng(state.seed + i + 1);
@@ -3782,12 +3833,12 @@
       // Dynamic noise film grain filter
       let grainFilter = '';
       if (state.grain) {
-        const grainOpacity = (Math.max(10, state.chaos) * 0.0006 * state.effectsIntensity).toFixed(3);
+        const grainOpacity = (Math.max(10, state.chaos) * 0.00025 * state.effectsIntensity).toFixed(3);
         grainFilter = `
           <filter id="grain-filter">
-            <feTurbulence type="fractalNoise" baseFrequency="0.95" numOctaves="1" result="noise" />
-            <feColorMatrix type="matrix" values="0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 ${grainOpacity} 0" />
-            <feBlend mode="overlay" in="SourceGraphic" in2="noise" />
+            <feTurbulence type="fractalNoise" baseFrequency="0.65" numOctaves="${state.animating ? drawPerf.grainOctaves : 4}" result="noise" />
+            <feColorMatrix type="matrix" values="0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 ${grainOpacity} 0" result="tintedNoise" />
+            <feBlend mode="soft-light" in="SourceGraphic" in2="tintedNoise" />
           </filter>
         `;
       }
@@ -3954,63 +4005,84 @@
         ...offCtx.defs
       ].join('\n');
 
-      // Setup groups for symmetry
-      let currentDrawingMarkup = '';
-      if (state.symmetry !== 'none') {
-        const symmetryElements = [];
-        let clipAttr = '';
-        if (state.symmetry === 'mirror-y') {
-          clipAttr = 'clip-path="url(#clip-symmetry-y)"';
-          symmetryElements.push(`<use href="#scene-content" transform="translate(${W}, 0) scale(-1, 1)" opacity="1.0" />`);
-        } else if (state.symmetry === 'mirror-x') {
-          clipAttr = 'clip-path="url(#clip-symmetry-x)"';
-          symmetryElements.push(`<use href="#scene-content" transform="translate(0, ${H}) scale(1, -1)" opacity="1.0" />`);
-        } else if (state.symmetry === '4way') {
-          clipAttr = 'clip-path="url(#clip-symmetry-4way)"';
-          symmetryElements.push(`<use href="#scene-content" transform="translate(${W}, 0) scale(-1, 1)" opacity="1.0" />`);
-          symmetryElements.push(`<use href="#scene-content" transform="translate(0, ${H}) scale(1, -1)" opacity="1.0" />`);
-          symmetryElements.push(`<use href="#scene-content" transform="translate(${W}, ${H}) scale(-1, -1)" opacity="1.0" />`);
-        }
+      // ── Partial DOM update ───────────────────────────────────────────────
+      // Rebuild SVG skeleton only when structure changes (symmetry, effects,
+      // grain, vignette, or canvas dimensions). Every frame only the inner
+      // groups are updated, avoiding full HTML re-parse of defs + bg.
+      const hasFx = state.chromatic || state.glitch || state.static;
+      const needsRebuild = !svgEl._svgReady ||
+        svgEl._lastSymmetry !== state.symmetry ||
+        svgEl._lastHasFx    !== hasFx ||
+        svgEl._lastGrain    !== !!state.grain ||
+        svgEl._lastVignette !== !!state.vignette ||
+        svgEl._lastW !== W  || svgEl._lastH !== H;
 
-        currentDrawingMarkup = `
-          <g id="scene-content" ${clipAttr}>${offCtx.elements.join('\n')}</g>
-          <g id="symmetry-group">${symmetryElements.join('\n')}</g>
-          <g id="overlay-group">${offCtx.overlayElements.join('\n')}</g>
+      if (needsRebuild) {
+        const clipAttr =
+          state.symmetry === 'mirror-y' ? 'clip-path="url(#clip-symmetry-y)"' :
+          state.symmetry === 'mirror-x' ? 'clip-path="url(#clip-symmetry-x)"' :
+          state.symmetry === '4way'     ? 'clip-path="url(#clip-symmetry-4way)"' : '';
+
+        svgEl.innerHTML = `
+          <defs id="svg-defs"></defs>
+          <rect id="svg-bg" width="100%" height="100%" />
+          <g id="render-group">
+            <g id="prev-frame" opacity="0"></g>
+            <g id="current-frame">
+              <g id="scene-content" ${clipAttr}></g>
+              <g id="symmetry-group"></g>
+              <g id="overlay-group"></g>
+            </g>
+          </g>
+          ${state.vignette ? '<rect id="svg-vignette" width="100%" height="100%" fill="url(#vignette-grad)" pointer-events="none" />' : ''}
+        `;
+        svgEl._svgReady   = true;
+        svgEl._lastSymmetry = state.symmetry;
+        svgEl._lastHasFx    = hasFx;
+        svgEl._lastGrain    = !!state.grain;
+        svgEl._lastVignette = !!state.vignette;
+        svgEl._lastW = W; svgEl._lastH = H;
+      }
+
+      // Update per-frame attributes and content
+      const filterAttrVal        = state.grain ? 'url(#grain-filter)' : '';
+      const currentFilterAttrVal = hasFx ? 'url(#dynamic-fx-filter)' : '';
+
+      svgEl.querySelector('#svg-defs').innerHTML = allDefs;
+      svgEl.querySelector('#svg-bg').setAttribute('fill', getBgColor());
+      svgEl.querySelector('#render-group').setAttribute('filter', filterAttrVal);
+      svgEl.querySelector('#current-frame').setAttribute('filter', currentFilterAttrVal);
+
+      // Build symmetry markup
+      let symmetryMarkup = '';
+      if (state.symmetry === 'mirror-y') {
+        symmetryMarkup = `<use href="#scene-content" transform="translate(${W}, 0) scale(-1, 1)" opacity="1.0" />`;
+      } else if (state.symmetry === 'mirror-x') {
+        symmetryMarkup = `<use href="#scene-content" transform="translate(0, ${H}) scale(1, -1)" opacity="1.0" />`;
+      } else if (state.symmetry === '4way') {
+        symmetryMarkup = `<use href="#scene-content" transform="translate(${W}, 0) scale(-1, 1)" opacity="1.0" />
+          <use href="#scene-content" transform="translate(0, ${H}) scale(1, -1)" opacity="1.0" />
+          <use href="#scene-content" transform="translate(${W}, ${H}) scale(-1, -1)" opacity="1.0" />`;
+      }
+
+      // Update drawing groups (only these change every frame)
+      svgEl.querySelector('#scene-content').innerHTML    = offCtx.elements.join('\n');
+      svgEl.querySelector('#symmetry-group').innerHTML   = symmetryMarkup;
+      svgEl.querySelector('#overlay-group').innerHTML    = offCtx.overlayElements.join('\n');
+
+      // Prev-frame fade
+      const prevFrameEl = svgEl.querySelector('#prev-frame');
+      if (prevSvgContent && fadeAlpha > 0) {
+        prevFrameEl.setAttribute('opacity', fadeAlpha.toFixed(3));
+        prevFrameEl.innerHTML = `
+          <g id="prev-scene-content">${prevSvgContent.scene}</g>
+          <g id="prev-symmetry-group">${prevSvgContent.symmetry}</g>
+          ${prevSvgContent.overlay ? `<g id="prev-overlay-group">${prevSvgContent.overlay}</g>` : ''}
         `;
       } else {
-        currentDrawingMarkup = `
-          <g id="scene-content">${offCtx.elements.join('\n')}</g>
-          <g id="symmetry-group"></g>
-          <g id="overlay-group">${offCtx.overlayElements.join('\n')}</g>
-        `;
+        prevFrameEl.setAttribute('opacity', '0');
+        if (prevFrameEl.innerHTML !== '') prevFrameEl.innerHTML = '';
       }
-
-      const filterAttr = state.grain ? 'filter="url(#grain-filter)"' : '';
-      const currentFilterAttr = (state.chromatic || state.glitch || state.static) ? 'filter="url(#dynamic-fx-filter)"' : '';
-
-      let prevFrameMarkup = '';
-      if (prevSvgContent && fadeAlpha > 0) {
-        prevFrameMarkup = `
-          <g id="prev-frame" opacity="${fadeAlpha.toFixed(3)}">
-            <g id="prev-scene-content">${prevSvgContent.scene}</g>
-            <g id="prev-symmetry-group">${prevSvgContent.symmetry}</g>
-            ${prevSvgContent.overlay ? `<g id="prev-overlay-group">${prevSvgContent.overlay}</g>` : ''}
-          </g>
-        `;
-      }
-
-      // Assemble final SVG — no zoom-group, content fills the viewport directly
-      svgEl.innerHTML = `
-        <defs>${allDefs}</defs>
-        <rect width="100%" height="100%" fill="${getBgColor()}" />
-        <g id="render-group" ${filterAttr}>
-          ${prevFrameMarkup}
-          <g id="current-frame" ${currentFilterAttr}>
-            ${currentDrawingMarkup}
-          </g>
-        </g>
-        ${state.vignette ? `<rect width="100%" height="100%" fill="url(#vignette-grad)" pointer-events="none" />` : ''}
-      `;
     }
 
     // Info bar
@@ -4026,7 +4098,7 @@
     document.getElementById('canvas-elements').textContent = `ELEMENTOS: ${state.elementCount}`;
     document.getElementById('canvas-sym').textContent = `SIMETRÍA: ${symTxt}`;
 
-    if (captureToGallery) captureThumb();
+    if (captureToGallery) setTimeout(captureThumb, 0);
   }
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -4317,6 +4389,17 @@
   //  ANIMATION LOOP
   // ─────────────────────────────────────────────────────────────────────────
 
+  function updateDrawPerf(currentFps) {
+    // state.fps is already a smoothed rolling average — no second layer needed.
+    // Fast drop response: if fps is well below current tier, adapt immediately.
+    const avg = currentFps;
+    if      (avg >= 57) { drawPerf.maxPasses = 4; drawPerf.elementBudget = 1500; drawPerf.pathBudget = 8000;  drawPerf.grainOctaves = 4; }
+    else if (avg >= 54) { drawPerf.maxPasses = 3; drawPerf.elementBudget = 1200; drawPerf.pathBudget = 5000;  drawPerf.grainOctaves = 3; }
+    else if (avg >= 48) { drawPerf.maxPasses = 2; drawPerf.elementBudget = 900;  drawPerf.pathBudget = 2500;  drawPerf.grainOctaves = 2; }
+    else if (avg >= 38) { drawPerf.maxPasses = 1; drawPerf.elementBudget = 550;  drawPerf.pathBudget = 1500;  drawPerf.grainOctaves = 1; }
+    else                { drawPerf.maxPasses = 0; drawPerf.elementBudget = 300;  drawPerf.pathBudget = 700;   drawPerf.grainOctaves = 1; }
+  }
+
   function animLoop(timestamp) {
     if (!state.animating) return;
 
@@ -4350,8 +4433,11 @@
     };
 
     const delta = timestamp - state.lastFrameTime;
-    if (delta > 0) state.fps = Math.round(1000 / delta * 0.08 + state.fps * 0.92);
-    document.getElementById('fps-counter').textContent = `${state.fps} FPS`;
+    if (delta > 0) state.fps = Math.round(1000 / delta * 0.25 + state.fps * 0.75);
+    const fpsEl = document.getElementById('fps-counter');
+    fpsEl.textContent = `${state.fps} FPS`;
+    fpsEl.dataset.passes = drawPerf.maxPasses;
+    fpsEl.dataset.elBudget = drawPerf.elementBudget;
     state.lastFrameTime = timestamp;
     // Scale animTime increment by speed (default base is 15) with LFO modulation
     const lfo = getWaveValue(timestamp / 1000, 2.0, 0, state.animSpeedModWave || 'sine');
@@ -4474,7 +4560,9 @@
       triggerFade(state.seed);
     } else {
       if (prevSvgContent) applyFadeOverlay(timestamp);
+      const _t0 = performance.now();
       draw(state.animTime);
+      updateDrawPerf(state.fps);  // state.fps already reflects total frame time (JS + browser render)
     }
 
     if (recordingState.isRecording) {
@@ -5272,7 +5360,7 @@
       i.classList.toggle('active', i.dataset.value === state.customTextColor);
     });
 
-    // 8. Effects (Smart Cap: at most 2 active effects/filters to prevent GPU/CPU bottleneck)
+    // 8. Effects (Only lightweight effects in random to avoid GPU/CPU filter bottleneck)
     const effects = ['vignette', 'grain', 'scanlines', 'chromatic', 'glitch', 'static'];
     effects.forEach(fx => {
       state[fx] = false;
@@ -5280,8 +5368,10 @@
       if (el) el.checked = false;
     });
 
-    const numActiveFx = Math.floor(Math.random() * 2) + 1; // 1 or 2 effects max
-    const shuffledFx = [...effects].sort(() => 0.5 - Math.random());
+    // Only allow cheap effects in random (glitch/chromatic/static use expensive SVG filters)
+    const cheapEffects = ['vignette', 'grain', 'scanlines'];
+    const numActiveFx = Math.floor(Math.random() * 2); // 0 or 1 cheap effect
+    const shuffledFx = [...cheapEffects].sort(() => 0.5 - Math.random());
     for (let i = 0; i < numActiveFx; i++) {
       const fx = shuffledFx[i];
       state[fx] = true;
@@ -5384,17 +5474,44 @@
   // Global randomizer click event
   const btnRandomAll = document.getElementById('btn-random-all');
   if (btnRandomAll) {
-    btnRandomAll.addEventListener('click', () => {
-      randomizeEverything();
+    let randomizeInProgress = false;
+    let randomIconTimer = null;
+    let randomizeCooldownUntil = 0;
+
+    const animateRandomIcon = () => {
       const icon = btnRandomAll.querySelector('span');
-      if (icon) {
-        icon.style.transition = 'transform 0.4s ease';
-        icon.style.transform = 'rotate(360deg)';
-        setTimeout(() => {
-          icon.style.transform = 'rotate(0deg)';
-          icon.style.transition = 'none';
-        }, 420);
-      }
+      if (!icon) return;
+      if (randomIconTimer) clearTimeout(randomIconTimer);
+      icon.style.transition = 'transform 0.4s ease';
+      icon.style.transform = 'rotate(360deg)';
+      randomIconTimer = setTimeout(() => {
+        icon.style.transform = 'rotate(0deg)';
+        icon.style.transition = 'none';
+        randomIconTimer = null;
+      }, 420);
+    };
+
+    const runRandomize = () => {
+      const now = performance.now();
+      if (now < randomizeCooldownUntil) return;
+      randomizeInProgress = true;
+      btnRandomAll.disabled = true;
+
+      requestAnimationFrame(() => {
+        try {
+          randomizeEverything();
+          animateRandomIcon();
+        } finally {
+          randomizeCooldownUntil = performance.now() + 180;
+          randomizeInProgress = false;
+          btnRandomAll.disabled = false;
+        }
+      });
+    };
+
+    btnRandomAll.addEventListener('click', () => {
+      if (randomizeInProgress) return;
+      runRandomize();
     });
   }
 
