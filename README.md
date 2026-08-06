@@ -2,6 +2,8 @@
 
 A web-based generative art studio inspired by **Y2K Metalheart, Vectorheart, Cyberpunk HUDs, and Sacred Geometry aesthetics**. Built with pure vanilla JavaScript, HTML5 Canvas, and SVG generation algorithms.
 
+👉 **[🌐 PROBAR DEMO EN VIVO / LIVE DEMO](https://lihuelsosa.github.io/HEARTFLASH-estudio-de-diseno-generativo/)**
+
 ![Generative Art](https://img.shields.io/badge/art-generative--design-purple.svg)
 ![HTML5 Canvas](https://img.shields.io/badge/tech-HTML5%20Canvas%20%2F%20SVG-orange.svg)
 ![JavaScript](https://img.shields.io/badge/javascript-ES6%2B-yellow.svg)
@@ -40,7 +42,7 @@ A web-based generative art studio inspired by **Y2K Metalheart, Vectorheart, Cyb
 ## 🛠️ Tech Stack
 
 - **Frontend:** Vanilla JavaScript (ES6+), HTML5 Canvas API, SVG DOM manipulation.
-- **Styling:** Custom CSS3 HUD interface, glassmorphism, responsive grid layouts, and Google Web Fonts (`Orbitron`, `Chakra Petch`, `Tektur`, `Share Tech Mono`).
+- **Styling:** Custom CSS3 HUD interface, glassmorphic UI, responsive grid layouts, and Google Web Fonts (`Orbitron`, `Chakra Petch`, `Tektur`, `Share Tech Mono`).
 - **Zero Dependencies:** Pure web standards without heavy external frameworks.
 
 ---
