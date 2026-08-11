@@ -5796,25 +5796,32 @@
 
     function getDestMod(destKey) {
       const blockKey = getDestBlockKey(destKey);
-      return state.patches[destKey].reduce((sum, depth, i) =>
+      const rawSum = state.patches[destKey].reduce((sum, depth, i) =>
         depth !== null ? sum + (sourceVals[i] || 0) * (depth / 100) : sum, 0);
+      return Math.max(-1.0, Math.min(1.0, rawSum));
     }
 
-    // Continuous destinations
+    // Continuous destinations (headroom-aware modulation preventing saturation at 100)
     const CONT_DESTS = [
-      { key: 'detail',        stateKey: 'detail',          base: 'detail',          range: 50, min: 0, max: 100, uiId: 'detail-val' },
-      { key: 'weight',        stateKey: 'weight',           base: 'weight',          range: 50, min: 1, max: 100, uiId: 'weight-val' },
-      { key: 'chaos',         stateKey: 'chaos',            base: 'chaos',           range: 50, min: 1, max: 100, uiId: 'chaos-val' },
-      { key: 'text',          stateKey: 'textAmount',       base: 'textAmount',      range: 50, min: 0, max: 100, uiId: 'text-val' },
-      { key: 'customDensity', stateKey: 'customTextAmount', base: 'customTextAmount', range: 50, min: 0, max: 100, uiId: 'custom-text-density-val' },
-      { key: 'customSize',    stateKey: 'customTextSize',   base: 'customTextSize',   range: 73, min: 4, max: 150, uiId: 'custom-text-size-val' },
+      { key: 'detail',        stateKey: 'detail',          base: 'detail',          min: 0, max: 100, uiId: 'detail-val' },
+      { key: 'weight',        stateKey: 'weight',           base: 'weight',          min: 1, max: 100, uiId: 'weight-val' },
+      { key: 'chaos',         stateKey: 'chaos',            base: 'chaos',           min: 1, max: 100, uiId: 'chaos-val' },
+      { key: 'text',          stateKey: 'textAmount',       base: 'textAmount',      min: 0, max: 100, uiId: 'text-val' },
+      { key: 'customDensity', stateKey: 'customTextAmount', base: 'customTextAmount', min: 0, max: 100, uiId: 'custom-text-density-val' },
+      { key: 'customSize',    stateKey: 'customTextSize',   base: 'customTextSize',   min: 4, max: 150, uiId: 'custom-text-size-val' },
     ];
     for (const d of CONT_DESTS) {
       if (state.patches[d.key].every(v => v === null)) continue;
       const mod = getDestMod(d.key);
-      const nextVal = Math.round(Math.max(d.min, Math.min(d.max, animBases[d.base] + d.range * mod)));
-      state[d.stateKey] = nextVal;
-      document.getElementById(d.uiId).textContent = nextVal;
+      const base = animBases[d.base];
+      const nextVal = Math.round(
+        mod >= 0
+          ? base + (d.max - base) * mod
+          : base + (base - d.min) * mod
+      );
+      const clampedVal = Math.max(d.min, Math.min(d.max, nextVal));
+      state[d.stateKey] = clampedVal;
+      document.getElementById(d.uiId).textContent = clampedVal;
     }
     if (state.patches.detail.some(v => v !== null)) {
       state.complexity = Math.round(state.detail * 40 / 100);
