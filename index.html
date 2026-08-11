@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>VECTORHEART — Estudio de Diseño Generativo</title>
-  <meta name="description" content="Generador de diseños al estilo Vectorheart / Metalheart Y2K. Arte generativo con líneas angulares, formas geométricas y estética HUD futurista." />
+  <title>HEARTFLASH — Estudio de Diseño Generativo</title>
+  <meta name="description" content="HEARTFLASH: Arte generativo con líneas angulares, formas geométricas y estética HUD futurista. Y2K generative design studio." />
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@300;400;500;600;700&family=Goldman:wght@400;700&family=Major+Mono+Display&family=Michroma&family=Montserrat:wght@300;400;500;600;700;900&family=Orbitron:wght@400;500;700;900&family=Oxanium:wght@300;400;500;600;700;800&family=Rajdhani:wght@300;400;500;600;700&family=Righteous&family=Share+Tech+Mono&family=Space+Mono:wght@400;700&family=Syne:wght@400;700;800&family=Syncopate:wght@400;700&family=Tektur:wght@400;500;700;900&display=swap" rel="stylesheet">
@@ -16,17 +16,38 @@
   <header class="header">
     <div class="header-left">
       <span class="logo-bracket">[</span>
-      <span class="logo-text">VECTORHEART</span>
+      <span class="logo-text">HEARTFLASH</span>
       <span class="logo-bracket">]</span>
       <span class="logo-sub">estudio de diseño generativo</span>
+      <button id="btn-generate" class="hud-btn-generate"><span>⟳</span><span class="generate-label-long">GENERAR SEMILLA</span><span class="generate-label-short">GENERAR</span></button>
     </div>
+    <div class="header-center"></div>
     <div class="header-right">
-      <button class="hud-btn-random" id="btn-random-all" title="Randomizar todo">
-        <span>⚄</span> RANDOM
-      </button>
+      <div class="header-tools">        <button class="hud-btn-init" id="btn-init" title="Reset al estado inicial">⟲ INIT</button>        <div class="header-tool-group random-group">
+          <span class="tool-group-tag">RND</span>
+          <button class="hud-btn-random" id="btn-random-all" title="Randomizar todo">
+            <span>⚄</span> RANDOM
+          </button>
+          <button class="hud-btn-random-level" id="btn-random-level" title="Intensidad de random">
+            RND::MED
+          </button>
+        </div>
+        <div class="header-tool-group autopilot-group">
+          <span class="tool-group-tag">AP</span>
+          <button class="hud-btn-autopilot" id="btn-autopilot" title="Autopilot on/off">
+            <span>◆</span> AUTOPILOT
+          </button>
+          <button class="hud-btn-autopilot-level" id="btn-autopilot-level" title="Intensidad de autopilot">
+            AP::MED
+          </button>
+        </div>
+        <button class="hud-btn-midi" id="btn-midi-learn" title="Activar MIDI Learn">
+          <span>◉</span> MIDI LEARN
+        </button>
+      </div>
       <span class="hud-label" id="mode-badge">MODO::VECTORHEART</span>
       <span class="hud-sep">|</span>
-      <span class="hud-label">SYS::v3.0.0</span>
+      <span class="hud-label sys-label">SYS::v3.0.0</span>
       <div class="status-dot" id="status-dot"></div>
       <span class="hud-label" id="fps-counter">-- FPS</span>
       <button class="panel-toggle-btn" id="btn-toggle-panel" aria-label="Toggle controls">
@@ -58,6 +79,7 @@
             <option value="flow">FLOW</option>
             <option value="sacred">SACRED</option>
             <option value="glyph">GLYPH</option>
+            <option value="volumetric">VOLUMETRIC</option>
             <option value="gundam">GUNDAM</option>
             <option value="evangelion">EVANGELION</option>
           </select>
@@ -192,25 +214,41 @@
       <div class="panel-section section-style">
         <div class="section-header"><span class="section-icon">◈</span><span>PALETA</span></div>
         <div class="palette-grid">
-          <button class="palette-btn active" data-palette="mono"><span class="palette-swatch mono"></span><span>MONOCROMO</span></button>
-          <button class="palette-btn" data-palette="cyber"><span class="palette-swatch cyber"></span><span>CYBERPUNK</span></button>
-          <button class="palette-btn" data-palette="neon"><span class="palette-swatch neon"></span><span>NEÓN</span></button>
-          <button class="palette-btn" data-palette="blood"><span class="palette-swatch blood"></span><span>SANGRE</span></button>
-          <button class="palette-btn" data-palette="ice"><span class="palette-swatch ice"></span><span>HIELO</span></button>
-          <button class="palette-btn" data-palette="gold"><span class="palette-swatch gold"></span><span>ORO</span></button>
-          <button class="palette-btn" data-palette="vaporwave"><span class="palette-swatch vaporwave"></span><span>VAPORWAVE</span></button>
-          <button class="palette-btn" data-palette="matrix"><span class="palette-swatch matrix"></span><span>MATRIX</span></button>
-          <button class="palette-btn" data-palette="rust"><span class="palette-swatch rust"></span><span>ÓXIDO</span></button>
-          <button class="palette-btn" data-palette="gundam"><span class="palette-swatch gundam"></span><span>GUNDAM</span></button>
-          <button class="palette-btn" data-palette="evangelion"><span class="palette-swatch evangelion"></span><span>NERV</span></button>
+          <button class="palette-btn active" data-palette="mono">      <span class="palette-swatch mono"></span>      <span>MONO</span></button>
+          <button class="palette-btn" data-palette="cyber">            <span class="palette-swatch cyber"></span>     <span>CYBER</span></button>
+          <button class="palette-btn" data-palette="neon">             <span class="palette-swatch neon"></span>      <span>NEÓN</span></button>
+          <button class="palette-btn" data-palette="blood">            <span class="palette-swatch blood"></span>     <span>SANGRE</span></button>
+          <button class="palette-btn" data-palette="ice">              <span class="palette-swatch ice"></span>       <span>HIELO</span></button>
+          <button class="palette-btn" data-palette="gold">             <span class="palette-swatch gold"></span>      <span>ORO</span></button>
+          <button class="palette-btn" data-palette="vaporwave">        <span class="palette-swatch vaporwave"></span> <span>VAPOR</span></button>
+          <button class="palette-btn" data-palette="matrix">           <span class="palette-swatch matrix"></span>    <span>MATRIX</span></button>
+          <button class="palette-btn" data-palette="rust">             <span class="palette-swatch rust"></span>      <span>ÓXIDO</span></button>
+          <button class="palette-btn" data-palette="gundam">           <span class="palette-swatch gundam"></span>    <span>GUNDAM</span></button>
+          <button class="palette-btn" data-palette="evangelion">       <span class="palette-swatch evangelion"></span><span>NERV</span></button>
+          <button class="palette-btn" data-palette="sunset">           <span class="palette-swatch sunset"></span>    <span>SUNSET</span></button>
+          <button class="palette-btn" data-palette="ocean">            <span class="palette-swatch ocean"></span>     <span>OCEAN</span></button>
+          <button class="palette-btn" data-palette="forest">           <span class="palette-swatch forest"></span>    <span>FOREST</span></button>
+          <button class="palette-btn" data-palette="nordic">           <span class="palette-swatch nordic"></span>    <span>NORDIC</span></button>
+          <button class="palette-btn" data-palette="sakura">           <span class="palette-swatch sakura"></span>    <span>SAKURA</span></button>
+          <button class="palette-btn" data-palette="lava">             <span class="palette-swatch lava"></span>      <span>LAVA</span></button>
+          <button class="palette-btn" data-palette="synthwave">        <span class="palette-swatch synthwave"></span> <span>SYNTH</span></button>
+          <button class="palette-btn" data-palette="toxic">            <span class="palette-swatch toxic"></span>     <span>TOXIC</span></button>
         </div>
 
         <div class="section-header" style="margin-top: 14px;"><span class="section-icon">◈</span><span>FONDO</span></div>
         <div class="bg-grid">
-          <button class="bg-btn active" data-bg="light">CLARO</button>
-          <button class="bg-btn" data-bg="dark">OSCURO</button>
-          <button class="bg-btn" data-bg="paper">PAPEL</button>
-          <button class="bg-btn" data-bg="black">NEGRO</button>
+          <button class="bg-btn active" data-bg="light">   <span class="bg-swatch light"></span>   <span>CLARO</span></button>
+          <button class="bg-btn" data-bg="dark">           <span class="bg-swatch dark"></span>    <span>OSCURO</span></button>
+          <button class="bg-btn" data-bg="paper">          <span class="bg-swatch paper"></span>   <span>PAPEL</span></button>
+          <button class="bg-btn" data-bg="black">          <span class="bg-swatch black"></span>   <span>NEGRO</span></button>
+          <button class="bg-btn" data-bg="midnight">       <span class="bg-swatch midnight"></span><span>NOCHE</span></button>
+          <button class="bg-btn" data-bg="sepia">          <span class="bg-swatch sepia"></span>   <span>SEPIA</span></button>
+          <button class="bg-btn" data-bg="violet">         <span class="bg-swatch violet"></span>  <span>VIOLETA</span></button>
+          <button class="bg-btn" data-bg="jade">           <span class="bg-swatch jade"></span>    <span>JADE</span></button>
+          <button class="bg-btn" data-bg="wine">           <span class="bg-swatch wine"></span>    <span>VINO</span></button>
+          <button class="bg-btn" data-bg="steel">          <span class="bg-swatch steel"></span>   <span>ACERO</span></button>
+          <button class="bg-btn" data-bg="copper">         <span class="bg-swatch copper"></span>  <span>COBRE</span></button>
+          <button class="bg-btn" data-bg="slate">          <span class="bg-swatch slate"></span>   <span>PIZARRA</span></button>
         </div>
       </div>
 
@@ -244,26 +282,42 @@
         <div class="top-section section-palette">
           <div class="top-section-header">PALETA</div>
           <div class="palette-grid" id="palette-grid">
-            <button class="palette-btn active" data-palette="mono" id="palette-mono"><span class="palette-swatch mono"></span><span>MONOCROMO</span></button>
-            <button class="palette-btn" data-palette="cyber" id="palette-cyber"><span class="palette-swatch cyber"></span><span>CYBERPUNK</span></button>
-            <button class="palette-btn" data-palette="neon" id="palette-neon"><span class="palette-swatch neon"></span><span>NEÓN</span></button>
-            <button class="palette-btn" data-palette="blood" id="palette-blood"><span class="palette-swatch blood"></span><span>SANGRE</span></button>
-            <button class="palette-btn" data-palette="ice" id="palette-ice"><span class="palette-swatch ice"></span><span>HIELO</span></button>
-            <button class="palette-btn" data-palette="gold" id="palette-gold"><span class="palette-swatch gold"></span><span>ORO</span></button>
-            <button class="palette-btn" data-palette="vaporwave" id="palette-vaporwave"><span class="palette-swatch vaporwave"></span><span>VAPORWAVE</span></button>
-            <button class="palette-btn" data-palette="matrix" id="palette-matrix"><span class="palette-swatch matrix"></span><span>MATRIX</span></button>
-            <button class="palette-btn" data-palette="rust" id="palette-rust"><span class="palette-swatch rust"></span><span>ÓXIDO</span></button>
-            <button class="palette-btn" data-palette="gundam" id="palette-gundam"><span class="palette-swatch gundam"></span><span>GUNDAM</span></button>
+            <button class="palette-btn active" data-palette="mono"       id="palette-mono">      <span class="palette-swatch mono"></span>      <span>MONO</span></button>
+            <button class="palette-btn" data-palette="cyber"      id="palette-cyber">     <span class="palette-swatch cyber"></span>     <span>CYBER</span></button>
+            <button class="palette-btn" data-palette="neon"       id="palette-neon">      <span class="palette-swatch neon"></span>      <span>NEÓN</span></button>
+            <button class="palette-btn" data-palette="blood"      id="palette-blood">     <span class="palette-swatch blood"></span>     <span>SANGRE</span></button>
+            <button class="palette-btn" data-palette="ice"        id="palette-ice">       <span class="palette-swatch ice"></span>       <span>HIELO</span></button>
+            <button class="palette-btn" data-palette="gold"       id="palette-gold">      <span class="palette-swatch gold"></span>      <span>ORO</span></button>
+            <button class="palette-btn" data-palette="vaporwave"  id="palette-vaporwave"> <span class="palette-swatch vaporwave"></span> <span>VAPOR</span></button>
+            <button class="palette-btn" data-palette="matrix"     id="palette-matrix">    <span class="palette-swatch matrix"></span>    <span>MATRIX</span></button>
+            <button class="palette-btn" data-palette="rust"       id="palette-rust">      <span class="palette-swatch rust"></span>      <span>ÓXIDO</span></button>
+            <button class="palette-btn" data-palette="gundam"     id="palette-gundam">    <span class="palette-swatch gundam"></span>    <span>GUNDAM</span></button>
             <button class="palette-btn" data-palette="evangelion" id="palette-evangelion"><span class="palette-swatch evangelion"></span><span>NERV</span></button>
+            <button class="palette-btn" data-palette="sunset"     id="palette-sunset">    <span class="palette-swatch sunset"></span>    <span>SUNSET</span></button>
+            <button class="palette-btn" data-palette="ocean"      id="palette-ocean">     <span class="palette-swatch ocean"></span>     <span>OCEAN</span></button>
+            <button class="palette-btn" data-palette="forest"     id="palette-forest">    <span class="palette-swatch forest"></span>    <span>FOREST</span></button>
+            <button class="palette-btn" data-palette="nordic"     id="palette-nordic">    <span class="palette-swatch nordic"></span>    <span>NORDIC</span></button>
+            <button class="palette-btn" data-palette="sakura"     id="palette-sakura">    <span class="palette-swatch sakura"></span>    <span>SAKURA</span></button>
+            <button class="palette-btn" data-palette="lava"       id="palette-lava">      <span class="palette-swatch lava"></span>      <span>LAVA</span></button>
+            <button class="palette-btn" data-palette="synthwave"  id="palette-synthwave"> <span class="palette-swatch synthwave"></span> <span>SYNTH</span></button>
+            <button class="palette-btn" data-palette="toxic"      id="palette-toxic">     <span class="palette-swatch toxic"></span>     <span>TOXIC</span></button>
           </div>
         </div>
         <div class="top-section section-bg">
           <div class="top-section-header">FONDO</div>
           <div class="bg-grid" id="bg-grid">
-            <button class="bg-btn active" data-bg="light" id="bg-light">CLARO</button>
-            <button class="bg-btn" data-bg="dark" id="bg-dark">OSCURO</button>
-            <button class="bg-btn" data-bg="paper" id="bg-paper">PAPEL</button>
-            <button class="bg-btn" data-bg="black" id="bg-black">NEGRO</button>
+            <button class="bg-btn active" data-bg="light"    id="bg-light">   <span class="bg-swatch light"></span>   <span>CLARO</span></button>
+            <button class="bg-btn"        data-bg="dark"     id="bg-dark">    <span class="bg-swatch dark"></span>    <span>OSCURO</span></button>
+            <button class="bg-btn"        data-bg="paper"    id="bg-paper">   <span class="bg-swatch paper"></span>   <span>PAPEL</span></button>
+            <button class="bg-btn"        data-bg="black"    id="bg-black">   <span class="bg-swatch black"></span>   <span>NEGRO</span></button>
+            <button class="bg-btn"        data-bg="midnight" id="bg-midnight"><span class="bg-swatch midnight"></span><span>NOCHE</span></button>
+            <button class="bg-btn"        data-bg="sepia"    id="bg-sepia">   <span class="bg-swatch sepia"></span>   <span>SEPIA</span></button>
+            <button class="bg-btn"        data-bg="violet"   id="bg-violet">  <span class="bg-swatch violet"></span>  <span>VIOLETA</span></button>
+            <button class="bg-btn"        data-bg="jade"     id="bg-jade">    <span class="bg-swatch jade"></span>    <span>JADE</span></button>
+            <button class="bg-btn"        data-bg="wine"     id="bg-wine">    <span class="bg-swatch wine"></span>    <span>VINO</span></button>
+            <button class="bg-btn"        data-bg="steel"    id="bg-steel">   <span class="bg-swatch steel"></span>   <span>ACERO</span></button>
+            <button class="bg-btn"        data-bg="copper"   id="bg-copper">  <span class="bg-swatch copper"></span>  <span>COBRE</span></button>
+            <button class="bg-btn"        data-bg="slate"    id="bg-slate">   <span class="bg-swatch slate"></span>   <span>PIZARRA</span></button>
           </div>
         </div>
       </div>
@@ -284,6 +338,55 @@
           <span id="canvas-elements">ELEMENTOS: 0</span>
           <span class="info-sep">|</span>
           <span id="canvas-sym">SIMETRÍA: NINGUNA</span>
+        </div>
+      </div>
+
+      <!-- Export Bar -->
+      <div class="canvas-export-bar">
+        <span class="export-bar-label">PRESET</span>
+        <div class="select-wrap export-preset-select-wrap" title="Preset guardado">
+          <select id="preset-select" class="hud-select export-preset-select">
+            <option value="">--</option>
+          </select>
+          <span class="select-arrow export-preset-arrow">▼</span>
+        </div>
+        <button class="export-bar-btn export-preset-btn" id="btn-preset-save" title="Guardar preset actual"><span>+</span>SAVE</button>
+        <button class="export-bar-btn export-preset-btn" id="btn-preset-load" title="Cargar preset seleccionado"><span>↺</span>LOAD</button>
+        <button class="export-bar-btn export-preset-btn" id="btn-preset-export" title="Exportar preset seleccionado a JSON"><span>↓</span>EXP</button>
+        <button class="export-bar-btn export-preset-btn" id="btn-preset-import" title="Importar preset desde JSON"><span>↑</span>IMP</button>
+        <button class="export-bar-btn export-preset-btn" id="btn-preset-delete" title="Borrar preset seleccionado"><span>×</span>DEL</button>
+        <input type="file" id="preset-import-file" accept="application/json,.json" style="display:none;">
+        <div class="export-bar-sep"></div>
+        <span class="export-bar-label">EXPORT</span>
+        <button class="export-bar-btn" id="btn-live-output" title="Abrir salida LIVE en otra pantalla"><span>▣</span>LIVE</button>
+        <button class="export-bar-btn" id="btn-download-fhd"><span>↓</span>FHD</button>
+        <button class="export-bar-btn" id="btn-download-2k"><span>↓</span>2K</button>
+        <button class="export-bar-btn" id="btn-download-4k"><span>↓</span>4K</button>
+        <button class="export-bar-btn" id="btn-download-svg" style="color:var(--accent);border-color:rgba(124,160,240,0.5);"><span>↓</span>SVG</button>
+        <div class="export-bar-sep"></div>
+        <button class="export-bar-btn export-bar-record" id="btn-record-video"><span>●</span>GRABAR</button>
+        <button class="export-bar-btn export-bar-record" id="btn-stop-recording" style="display:none;" title="Detener grabación"><span>■</span>STOP</button>
+        <div class="select-wrap" style="width:52px;margin-bottom:0;" title="Resolución de grabación">
+          <select id="record-resolution-select" class="hud-select" style="padding:2px 4px;font-size:10px;">
+            <option value="720">720p</option>
+            <option value="1080" selected>1080p</option>
+            <option value="2k">2K</option>
+            <option value="4k">4K</option>
+          </select>
+          <span class="select-arrow" style="font-size:8px;right:4px;top:50%;transform:translateY(-50%)">▼</span>
+        </div>
+        <div class="select-wrap" style="width:52px;margin-bottom:0;" title="Duración de grabación">
+          <select id="record-duration-select" class="hud-select" style="padding:2px 4px;font-size:10px;">
+            <option value="5">5s</option>
+            <option value="10" selected>10s</option>
+            <option value="15">15s</option>
+            <option value="30">30s</option>
+            <option value="60">1min</option>
+            <option value="120">2min</option>
+            <option value="300">5min</option>
+            <option value="600">10min</option>
+          </select>
+          <span class="select-arrow" style="font-size:8px;right:4px;top:50%;transform:translateY(-50%);">▼</span>
         </div>
       </div>
 
@@ -311,180 +414,288 @@
         <button id="btn-close-panel-right" class="panel-close-btn">&times;</button>
       </div>
 
-      <!-- SELECCIÓN DE ANIMACIÓN -->
+      <!-- MODULACIÓN LFO -->
       <div class="panel-section section-anim">
-        <div class="section-header"><span class="section-icon">◈</span><span>SELECCIÓN DE ANIMACIÓN</span></div>
-        <div class="anim-control-list" style="display: flex; flex-direction: column; gap: 8px;">
-          <!-- MODO -->
-          <div class="anim-control-row" style="display: flex; align-items: center; justify-content: space-between; gap: 8px;">
-            <label class="effect-toggle" for="anim-mode" style="flex: 1; margin: 0; min-width: 130px;"><input type="checkbox" id="anim-mode"><span class="toggle-box"></span><span class="toggle-label" style="font-size: 10px;">MODO</span></label>
-            <div class="anim-slider-wrap" style="display: flex; align-items: center; gap: 6px; flex-shrink: 0;">
-              <input type="range" id="anim-mode-amount-slider" min="0" max="100" value="100" class="anim-amount-slider" style="width: 80px;">
-              <span class="anim-amount-val" id="anim-mode-amount-val" style="font-family: var(--font-mono); font-size: 10px; width: 22px; text-align: right; color: var(--accent);">100</span>
-            </div>
-          </div>
-          <!-- DETALLE -->
-          <div class="anim-control-row" style="display: flex; align-items: center; justify-content: space-between; gap: 8px;">
-            <label class="effect-toggle" for="anim-detail" style="flex: 1; margin: 0; min-width: 130px;"><input type="checkbox" id="anim-detail"><span class="toggle-box"></span><span class="toggle-label" style="font-size: 10px;">DETALLE</span></label>
-            <div class="anim-slider-wrap" style="display: flex; align-items: center; gap: 6px; flex-shrink: 0;">
-              <input type="range" id="anim-detail-amount-slider" min="0" max="100" value="100" class="anim-amount-slider" style="width: 80px;">
-              <span class="anim-amount-val" id="anim-detail-amount-val" style="font-family: var(--font-mono); font-size: 10px; width: 22px; text-align: right; color: var(--accent);">100</span>
-            </div>
-          </div>
-          <!-- GROSOR -->
-          <div class="anim-control-row" style="display: flex; align-items: center; justify-content: space-between; gap: 8px;">
-            <label class="effect-toggle" for="anim-weight" style="flex: 1; margin: 0; min-width: 130px;"><input type="checkbox" id="anim-weight"><span class="toggle-box"></span><span class="toggle-label" style="font-size: 10px;">GROSOR</span></label>
-            <div class="anim-slider-wrap" style="display: flex; align-items: center; gap: 6px; flex-shrink: 0;">
-              <input type="range" id="anim-weight-amount-slider" min="0" max="100" value="100" class="anim-amount-slider" style="width: 80px;">
-              <span class="anim-amount-val" id="anim-weight-amount-val" style="font-family: var(--font-mono); font-size: 10px; width: 22px; text-align: right; color: var(--accent);">100</span>
-            </div>
-          </div>
-          <!-- CAOS -->
-          <div class="anim-control-row" style="display: flex; align-items: center; justify-content: space-between; gap: 8px;">
-            <label class="effect-toggle" for="anim-chaos" style="flex: 1; margin: 0; min-width: 130px;"><input type="checkbox" id="anim-chaos"><span class="toggle-box"></span><span class="toggle-label" style="font-size: 10px;">CAOS</span></label>
-            <div class="anim-slider-wrap" style="display: flex; align-items: center; gap: 6px; flex-shrink: 0;">
-              <input type="range" id="anim-chaos-amount-slider" min="0" max="100" value="100" class="anim-amount-slider" style="width: 80px;">
-              <span class="anim-amount-val" id="anim-chaos-amount-val" style="font-family: var(--font-mono); font-size: 10px; width: 22px; text-align: right; color: var(--accent);">100</span>
-            </div>
-          </div>
-          <!-- TEXTO HUD -->
-          <div class="anim-control-row" style="display: flex; align-items: center; justify-content: space-between; gap: 8px;">
-            <label class="effect-toggle" for="anim-text" style="flex: 1; margin: 0; min-width: 130px;"><input type="checkbox" id="anim-text"><span class="toggle-box"></span><span class="toggle-label" style="font-size: 10px;">TEXTO HUD</span></label>
-            <div class="anim-slider-wrap" style="display: flex; align-items: center; gap: 6px; flex-shrink: 0;">
-              <input type="range" id="anim-text-amount-slider" min="0" max="100" value="100" class="anim-amount-slider" style="width: 80px;">
-              <span class="anim-amount-val" id="anim-text-amount-val" style="font-family: var(--font-mono); font-size: 10px; width: 22px; text-align: right; color: var(--accent);">100</span>
-            </div>
-          </div>
-          <!-- DENSIDAD TEXTO -->
-          <div class="anim-control-row" style="display: flex; align-items: center; justify-content: space-between; gap: 8px;">
-            <label class="effect-toggle" for="anim-custom-density" style="flex: 1; margin: 0; min-width: 130px;"><input type="checkbox" id="anim-custom-density"><span class="toggle-box"></span><span class="toggle-label" style="font-size: 10px;">DENSIDAD TEXTO</span></label>
-            <div class="anim-slider-wrap" style="display: flex; align-items: center; gap: 6px; flex-shrink: 0;">
-              <input type="range" id="anim-custom-density-amount-slider" min="0" max="100" value="100" class="anim-amount-slider" style="width: 80px;">
-              <span class="anim-amount-val" id="anim-custom-density-amount-val" style="font-family: var(--font-mono); font-size: 10px; width: 22px; text-align: right; color: var(--accent);">100</span>
-            </div>
-          </div>
-          <!-- TAMAÑO TEXTO -->
-          <div class="anim-control-row" style="display: flex; align-items: center; justify-content: space-between; gap: 8px;">
-            <label class="effect-toggle" for="anim-custom-size" style="flex: 1; margin: 0; min-width: 130px;"><input type="checkbox" id="anim-custom-size"><span class="toggle-box"></span><span class="toggle-label" style="font-size: 10px;">TAMAÑO TEXTO</span></label>
-            <div class="anim-slider-wrap" style="display: flex; align-items: center; gap: 6px; flex-shrink: 0;">
-              <input type="range" id="anim-custom-size-amount-slider" min="0" max="100" value="100" class="anim-amount-slider" style="width: 80px;">
-              <span class="anim-amount-val" id="anim-custom-size-amount-val" style="font-family: var(--font-mono); font-size: 10px; width: 22px; text-align: right; color: var(--accent);">100</span>
-            </div>
-          </div>
-          <!-- PALETA -->
-          <div class="anim-control-row" style="display: flex; align-items: center; justify-content: space-between; gap: 8px;">
-            <label class="effect-toggle" for="anim-palette" style="flex: 1; margin: 0; min-width: 130px;"><input type="checkbox" id="anim-palette"><span class="toggle-box"></span><span class="toggle-label" style="font-size: 10px;">PALETA</span></label>
-            <div class="anim-slider-wrap" style="display: flex; align-items: center; gap: 6px; flex-shrink: 0;">
-              <input type="range" id="anim-palette-amount-slider" min="0" max="100" value="100" class="anim-amount-slider" style="width: 80px;">
-              <span class="anim-amount-val" id="anim-palette-amount-val" style="font-family: var(--font-mono); font-size: 10px; width: 22px; text-align: right; color: var(--accent);">100</span>
-            </div>
-          </div>
-          <!-- FONDO -->
-          <div class="anim-control-row" style="display: flex; align-items: center; justify-content: space-between; gap: 8px;">
-            <label class="effect-toggle" for="anim-bg" style="flex: 1; margin: 0; min-width: 130px;"><input type="checkbox" id="anim-bg"><span class="toggle-box"></span><span class="toggle-label" style="font-size: 10px;">FONDO</span></label>
-            <div class="anim-slider-wrap" style="display: flex; align-items: center; gap: 6px; flex-shrink: 0;">
-              <input type="range" id="anim-bg-amount-slider" min="0" max="100" value="100" class="anim-amount-slider" style="width: 80px;">
-              <span class="anim-amount-val" id="anim-bg-amount-val" style="font-family: var(--font-mono); font-size: 10px; width: 22px; text-align: right; color: var(--accent);">100</span>
-            </div>
-          </div>
-          <!-- EFECTOS -->
-          <div class="anim-control-row" style="display: flex; align-items: center; justify-content: space-between; gap: 8px;">
-            <label class="effect-toggle" for="anim-effects" style="flex: 1; margin: 0; min-width: 130px;"><input type="checkbox" id="anim-effects"><span class="toggle-box"></span><span class="toggle-label" style="font-size: 10px;">EFECTOS</span></label>
-            <div class="anim-slider-wrap" style="display: flex; align-items: center; gap: 6px; flex-shrink: 0;">
-              <input type="range" id="anim-effects-amount-slider" min="0" max="100" value="100" class="anim-amount-slider" style="width: 80px;">
-              <span class="anim-amount-val" id="anim-effects-amount-val" style="font-family: var(--font-mono); font-size: 10px; width: 22px; text-align: right; color: var(--accent);">100</span>
-            </div>
-          </div>
-          <!-- SEMILLAS -->
-          <div class="anim-control-row" style="display: flex; align-items: center; justify-content: space-between; gap: 8px;">
-            <label class="effect-toggle" for="anim-seed" style="flex: 1; margin: 0; min-width: 130px;"><input type="checkbox" id="anim-seed"><span class="toggle-box"></span><span class="toggle-label" style="font-size: 10px;">SEMILLAS</span></label>
-            <div class="anim-slider-wrap" style="display: flex; align-items: center; gap: 6px; flex-shrink: 0;">
-              <input type="range" id="anim-seed-amount-slider" min="0" max="100" value="100" class="anim-amount-slider" style="width: 80px;">
-              <span class="anim-amount-val" id="anim-seed-amount-val" style="font-family: var(--font-mono); font-size: 10px; width: 22px; text-align: right; color: var(--accent);">100</span>
-            </div>
+        <div class="section-header"><span class="section-icon">◈</span><span>MODULACIÓN LFO</span>
+          <div style="margin-left:auto;display:flex;gap:3px;">
+            <button id="btn-rnd-lfo" style="font-family:var(--font-mono);font-size:9px;font-weight:700;letter-spacing:.8px;padding:2px 6px;background:rgba(255,145,0,0.07);border:1px solid rgba(255,145,0,0.4);color:#ff9100;border-radius:var(--radius);cursor:pointer;" title="Random patches LFO">RND</button>
+            <button id="btn-clr-lfo" style="font-family:var(--font-mono);font-size:9px;font-weight:700;letter-spacing:.8px;padding:2px 6px;background:rgba(255,77,77,0.07);border:1px solid rgba(255,77,77,0.4);color:#ff4d4d;border-radius:var(--radius);cursor:pointer;" title="Limpiar patches LFO">CLR</button>
           </div>
         </div>
-        <div class="wave-select-row" style="margin-top: 10px; display: flex; flex-direction: column; gap: 4px;">
-          <span class="slider-label" style="margin-bottom: 2px;">FORMA DE ONDA</span>
-          <div class="wave-btn-grid" style="display: grid; grid-template-columns: repeat(5, 1fr); gap: 4px;">
-            <button class="wave-btn active" data-wave="triangle" title="Triangular" id="wave-triangle">▲</button>
-            <button class="wave-btn" data-wave="sawtooth" title="Sierra" id="wave-sawtooth">⊿</button>
-            <button class="wave-btn" data-wave="sawtooth-rev" title="Sierra Invertida" id="wave-sawtooth-rev">◺</button>
-            <button class="wave-btn" data-wave="square" title="Cuadrada" id="wave-square">⊓</button>
-            <button class="wave-btn" data-wave="random" title="Aleatorio por pasos" id="wave-random">⚄</button>
+
+        <!-- 3 LFO Modules (horizontal strip layout) -->
+        <div class="lfo-rack">
+          <div class="lfo-module" data-lfo="0">
+            <span class="lfo-label">L1</span>
+            <span class="lfo-out-jack" data-lfo="0"></span>
+            <div class="lfo-waves">
+              <button class="lfo-wave-btn active" data-lfo="0" data-wave="sine" title="Senoidal">∿</button>
+              <button class="lfo-wave-btn" data-lfo="0" data-wave="triangle" title="Triangular">▲</button>
+              <button class="lfo-wave-btn" data-lfo="0" data-wave="sawtooth" title="Sierra">⊿</button>
+              <button class="lfo-wave-btn" data-lfo="0" data-wave="square" title="Cuadrada">⊓</button>
+              <button class="lfo-wave-btn" data-lfo="0" data-wave="random" title="S&amp;H">⚄</button>
+            </div>
+            <input type="range" class="lfo-rate-slider" data-lfo="0" min="1" max="100" value="15">
+            <span class="lfo-rate-val" data-lfo="0">15</span>
+          </div>
+          <div class="lfo-module" data-lfo="1">
+            <span class="lfo-label">L2</span>
+            <span class="lfo-out-jack" data-lfo="1"></span>
+            <div class="lfo-waves">
+              <button class="lfo-wave-btn" data-lfo="1" data-wave="sine" title="Senoidal">∿</button>
+              <button class="lfo-wave-btn active" data-lfo="1" data-wave="triangle" title="Triangular">▲</button>
+              <button class="lfo-wave-btn" data-lfo="1" data-wave="sawtooth" title="Sierra">⊿</button>
+              <button class="lfo-wave-btn" data-lfo="1" data-wave="square" title="Cuadrada">⊓</button>
+              <button class="lfo-wave-btn" data-lfo="1" data-wave="random" title="S&amp;H">⚄</button>
+            </div>
+            <input type="range" class="lfo-rate-slider" data-lfo="1" min="1" max="100" value="10">
+            <span class="lfo-rate-val" data-lfo="1">10</span>
+          </div>
+          <div class="lfo-module" data-lfo="2">
+            <span class="lfo-label">L3</span>
+            <span class="lfo-out-jack" data-lfo="2"></span>
+            <div class="lfo-waves">
+              <button class="lfo-wave-btn" data-lfo="2" data-wave="sine" title="Senoidal">∿</button>
+              <button class="lfo-wave-btn" data-lfo="2" data-wave="triangle" title="Triangular">▲</button>
+              <button class="lfo-wave-btn" data-lfo="2" data-wave="sawtooth" title="Sierra">⊿</button>
+              <button class="lfo-wave-btn active" data-lfo="2" data-wave="square" title="Cuadrada">⊓</button>
+              <button class="lfo-wave-btn" data-lfo="2" data-wave="random" title="S&amp;H">⚄</button>
+            </div>
+            <input type="range" class="lfo-rate-slider" data-lfo="2" min="1" max="100" value="20">
+            <span class="lfo-rate-val" data-lfo="2">20</span>
           </div>
         </div>
-        <div class="slider-row" style="margin-top: 10px;">
-          <label class="slider-label" for="speed-slider">VELOCIDAD ANIMACIÓN</label>
-          <div class="slider-track-wrap">
-            <input type="range" id="speed-slider" min="1" max="100" value="15" step="1">
-            <span class="slider-val" id="speed-val">15</span>
+
+        <div class="section-header" style="margin-top:12px;"><span class="section-icon">◈</span><span>MODULACIÓN AUDIO</span></div>
+        <div class="section-header" style="margin-top:8px;">
+          <button class="audio-rx-toggle" id="btn-audio-rx" type="button">AUDIO RX::OFF</button>
+          <div style="margin-left:auto;display:flex;gap:3px;">
+            <button id="btn-rnd-audio" style="font-family:var(--font-mono);font-size:9px;font-weight:700;letter-spacing:.8px;padding:2px 6px;background:rgba(255,145,0,0.07);border:1px solid rgba(255,145,0,0.4);color:#ff9100;border-radius:var(--radius);cursor:pointer;" title="Random audio patches">RND</button>
+            <button id="btn-clr-audio" style="font-family:var(--font-mono);font-size:9px;font-weight:700;letter-spacing:.8px;padding:2px 6px;background:rgba(255,77,77,0.07);border:1px solid rgba(255,77,77,0.4);color:#ff4d4d;border-radius:var(--radius);cursor:pointer;" title="Limpiar patches audio">CLR</button>
           </div>
         </div>
-        <div class="slider-row">
-          <label class="slider-label" for="speed-mod-slider">MODULACIÓN VELOCIDAD ANIMACIÓN</label>
-          <div class="slider-track-wrap">
-            <input type="range" id="speed-mod-slider" min="0" max="100" value="0" step="1">
-            <span class="slider-val" id="speed-mod-val">0</span>
+        <div id="audio-rx-panel">
+          <div class="audio-rx-routing-row">
+            <select id="audio-source-select" class="audio-rx-select">
+              <option value="mic">MIC</option>
+              <option value="linein">LINE-IN/AUX</option>
+              <option value="loopback">LOOPBACK</option>
+            </select>
+            <select id="audio-device-select" class="audio-rx-select">
+              <option value="default">SISTEMA (DEFAULT)</option>
+            </select>
+          </div>
+          <div class="audio-rx-meter">
+            <div class="audio-rx-meter-fill" id="audio-rx-meter-fill"></div>
+          </div>
+          <div class="audio-band-meter-group" id="audio-band-meter-group">
+            <div class="audio-band-meter-row">
+              <span class="audio-band-meter-label low">LOW</span>
+              <div class="audio-band-meter-track">
+                <div class="audio-band-meter-fill low" id="audio-band-low-fill"></div>
+              </div>
+            </div>
+            <div class="audio-band-meter-row">
+              <span class="audio-band-meter-label mid">MID</span>
+              <div class="audio-band-meter-track">
+                <div class="audio-band-meter-fill mid" id="audio-band-mid-fill"></div>
+              </div>
+            </div>
+            <div class="audio-band-meter-row">
+              <span class="audio-band-meter-label high">HIGH</span>
+              <div class="audio-band-meter-track">
+                <div class="audio-band-meter-fill high" id="audio-band-high-fill"></div>
+              </div>
+            </div>
+          </div>
+          <div class="audio-rx-controls">
+            <div class="slider-row" style="margin-bottom:5px;">
+              <label class="slider-label" for="audio-master-send-slider">MASTER</label>
+              <div class="slider-track-wrap">
+                <input type="range" id="audio-master-send-slider" min="0" max="150" value="100" step="1">
+                <span class="slider-val" id="audio-master-send-val">100</span>
+              </div>
+            </div>
+            <div class="slider-row" style="margin-bottom:0;">
+              <label class="slider-label" for="audio-smooth-slider">SMOOTH</label>
+              <div class="slider-track-wrap">
+                <input type="range" id="audio-smooth-slider" min="0" max="98" value="82" step="1">
+                <span class="slider-val" id="audio-smooth-val">82</span>
+              </div>
+            </div>
+
           </div>
         </div>
-        <div class="slider-row" style="margin-top: 5px; margin-bottom: 10px;">
-          <span class="slider-label" style="margin-bottom: 2px;">FORMA DE ONDA MODULACIÓN</span>
-          <div class="wave-btn-grid" style="display: grid; grid-template-columns: repeat(5, 1fr); gap: 4px;">
-            <button class="wave-btn speed-mod-wave-btn active" data-wave="triangle" title="Triangular" id="speed-mod-wave-triangle">▲</button>
-            <button class="wave-btn speed-mod-wave-btn" data-wave="sawtooth" title="Sierra" id="speed-mod-wave-sawtooth">⊿</button>
-            <button class="wave-btn speed-mod-wave-btn" data-wave="sawtooth-rev" title="Sierra Invertida" id="speed-mod-wave-sawtooth-rev">◺</button>
-            <button class="wave-btn speed-mod-wave-btn" data-wave="square" title="Cuadrada" id="speed-mod-wave-square">⊓</button>
-            <button class="wave-btn speed-mod-wave-btn" data-wave="random" title="Aleatorio por pasos" id="speed-mod-wave-random">⚄</button>
+
+        <!-- Patch Bay -->
+        <div class="patch-bay">
+          <div class="patch-matrix-title">MATRIZ DE MODULACION</div>
+          <div class="patch-group-tabs">
+            <button class="patch-group-toggle active" data-group="core">CORE</button>
+            <button class="patch-group-toggle" data-group="scene">ESCENA</button>
+            <button class="patch-group-toggle" data-group="lfo">LFO</button>
+          </div>
+          <div class="patch-bay-legend">
+            <div class="patch-ports-legend">
+              <span style="color:#00e5ff">L1</span>
+              <span style="color:#ff4f81">L2</span>
+              <span style="color:#bf5af2">L3</span>
+              <span class="band-low" style="color:#56f4a7">LO</span>
+              <span class="band-mid" style="color:#ffd166">MI</span>
+              <span class="band-high" style="color:#ff8c00">HI</span>
+            </div>
+            <span>DESTINO</span>
+          </div>
+
+          <div class="patch-destinations-scroll">
+          <div class="patch-group" data-group="core">
+            <div class="patch-dest-row" data-dest="detail">
+              <div class="patch-ports">
+                <button class="patch-port" data-lfo="0" data-dest="detail"></button>
+                <button class="patch-port" data-lfo="1" data-dest="detail"></button>
+                <button class="patch-port" data-lfo="2" data-dest="detail"></button>
+              </div>
+              <span class="dest-name">DETALLE</span>
+              <div class="dest-depth" data-dest="detail"></div>
+            </div>
+            <div class="patch-dest-row" data-dest="chaos">
+              <div class="patch-ports">
+                <button class="patch-port" data-lfo="0" data-dest="chaos"></button>
+                <button class="patch-port" data-lfo="1" data-dest="chaos"></button>
+                <button class="patch-port" data-lfo="2" data-dest="chaos"></button>
+              </div>
+              <span class="dest-name">CAOS</span>
+              <div class="dest-depth" data-dest="chaos"></div>
+            </div>
+            <div class="patch-dest-row" data-dest="weight">
+              <div class="patch-ports">
+                <button class="patch-port" data-lfo="0" data-dest="weight"></button>
+                <button class="patch-port" data-lfo="1" data-dest="weight"></button>
+                <button class="patch-port" data-lfo="2" data-dest="weight"></button>
+              </div>
+              <span class="dest-name">GROSOR</span>
+              <div class="dest-depth" data-dest="weight"></div>
+            </div>
+            <div class="patch-dest-row" data-dest="effects">
+              <div class="patch-ports">
+                <button class="patch-port" data-lfo="0" data-dest="effects"></button>
+                <button class="patch-port" data-lfo="1" data-dest="effects"></button>
+                <button class="patch-port" data-lfo="2" data-dest="effects"></button>
+              </div>
+              <span class="dest-name">EFECTOS</span>
+              <div class="dest-depth" data-dest="effects"></div>
+            </div>
+            <div class="patch-dest-row" data-dest="text">
+              <div class="patch-ports">
+                <button class="patch-port" data-lfo="0" data-dest="text"></button>
+                <button class="patch-port" data-lfo="1" data-dest="text"></button>
+                <button class="patch-port" data-lfo="2" data-dest="text"></button>
+              </div>
+              <span class="dest-name">TEXTO</span>
+              <div class="dest-depth" data-dest="text"></div>
+            </div>
+            <div class="patch-dest-row" data-dest="customDensity">
+              <div class="patch-ports">
+                <button class="patch-port" data-lfo="0" data-dest="customDensity"></button>
+                <button class="patch-port" data-lfo="1" data-dest="customDensity"></button>
+                <button class="patch-port" data-lfo="2" data-dest="customDensity"></button>
+              </div>
+              <span class="dest-name">DENSIDAD</span>
+              <div class="dest-depth" data-dest="customDensity"></div>
+            </div>
+            <div class="patch-dest-row" data-dest="customSize">
+              <div class="patch-ports">
+                <button class="patch-port" data-lfo="0" data-dest="customSize"></button>
+                <button class="patch-port" data-lfo="1" data-dest="customSize"></button>
+                <button class="patch-port" data-lfo="2" data-dest="customSize"></button>
+              </div>
+              <span class="dest-name">TAMAÑO</span>
+              <div class="dest-depth" data-dest="customSize"></div>
+            </div>
+          </div>
+
+          <div class="patch-group collapsed" data-group="scene">
+            <div class="patch-dest-row" data-dest="palette">
+              <div class="patch-ports">
+                <button class="patch-port" data-lfo="0" data-dest="palette"></button>
+                <button class="patch-port" data-lfo="1" data-dest="palette"></button>
+                <button class="patch-port" data-lfo="2" data-dest="palette"></button>
+              </div>
+              <span class="dest-name">PALETA</span>
+              <div class="dest-depth" data-dest="palette"></div>
+            </div>
+            <div class="patch-dest-row" data-dest="bg">
+              <div class="patch-ports">
+                <button class="patch-port" data-lfo="0" data-dest="bg"></button>
+                <button class="patch-port" data-lfo="1" data-dest="bg"></button>
+                <button class="patch-port" data-lfo="2" data-dest="bg"></button>
+              </div>
+              <span class="dest-name">FONDO</span>
+              <div class="dest-depth" data-dest="bg"></div>
+            </div>
+            <div class="patch-dest-row" data-dest="seed">
+              <div class="patch-ports">
+                <button class="patch-port" data-lfo="0" data-dest="seed"></button>
+                <button class="patch-port" data-lfo="1" data-dest="seed"></button>
+                <button class="patch-port" data-lfo="2" data-dest="seed"></button>
+              </div>
+              <span class="dest-name">SEMILLA</span>
+              <div class="dest-depth" data-dest="seed"></div>
+            </div>
+            <div class="patch-dest-row" data-dest="mode">
+              <div class="patch-ports">
+                <button class="patch-port" data-lfo="0" data-dest="mode"></button>
+                <button class="patch-port" data-lfo="1" data-dest="mode"></button>
+                <button class="patch-port" data-lfo="2" data-dest="mode"></button>
+              </div>
+              <span class="dest-name">MODO</span>
+              <div class="dest-depth" data-dest="mode"></div>
+            </div>
+          </div>
+
+          <div class="patch-group collapsed" data-group="lfo">
+            <div class="patch-dest-row" data-dest="lfo1Rate">
+              <div class="patch-ports">
+                <button class="patch-port" data-lfo="0" data-dest="lfo1Rate"></button>
+                <button class="patch-port" data-lfo="1" data-dest="lfo1Rate"></button>
+                <button class="patch-port" data-lfo="2" data-dest="lfo1Rate"></button>
+              </div>
+              <span class="dest-name">LFO1 RATE</span>
+              <div class="dest-depth" data-dest="lfo1Rate"></div>
+            </div>
+            <div class="patch-dest-row" data-dest="lfo2Rate">
+              <div class="patch-ports">
+                <button class="patch-port" data-lfo="0" data-dest="lfo2Rate"></button>
+                <button class="patch-port" data-lfo="1" data-dest="lfo2Rate"></button>
+                <button class="patch-port" data-lfo="2" data-dest="lfo2Rate"></button>
+              </div>
+              <span class="dest-name">LFO2 RATE</span>
+              <div class="dest-depth" data-dest="lfo2Rate"></div>
+            </div>
+            <div class="patch-dest-row" data-dest="lfo3Rate">
+              <div class="patch-ports">
+                <button class="patch-port" data-lfo="0" data-dest="lfo3Rate"></button>
+                <button class="patch-port" data-lfo="1" data-dest="lfo3Rate"></button>
+                <button class="patch-port" data-lfo="2" data-dest="lfo3Rate"></button>
+              </div>
+              <span class="dest-name">LFO3 RATE</span>
+              <div class="dest-depth" data-dest="lfo3Rate"></div>
+            </div>
+          </div>
           </div>
         </div>
-        <div class="slider-row">
-          <label class="slider-label" for="anim-noise-slider">CAOS ANIMACIÓN</label>
-          <div class="slider-track-wrap">
-            <input type="range" id="anim-noise-slider" min="0" max="100" value="0" step="1">
-            <span class="slider-val" id="anim-noise-val">0</span>
-          </div>
-        </div>
-        <div class="action-buttons" style="margin-top: 10px;">
-          <button class="action-btn secondary" id="btn-animate" style="width: 100%;"><span>▶</span> ANIMAR</button>
-        </div>
+
       </div>
 
-      <!-- ACCIONES -->
-      <div class="panel-section section-actions">
-        <div class="section-header"><span class="section-icon">◈</span><span>ACCIONES</span></div>
-        <div class="action-buttons">
-          <button class="action-btn primary" id="btn-generate" style="width: 100%;"><span>⟳</span> GENERAR</button>
-        </div>
-        <div class="action-buttons" style="margin-top:6px">
-          <button class="action-btn secondary" id="btn-download-fhd"><span>↓</span> FHD</button>
-          <button class="action-btn secondary" id="btn-download-2k"><span>↓</span> 2K</button>
-        </div>
-        <div class="action-buttons" style="margin-top:6px">
-          <button class="action-btn secondary" id="btn-download-4k"><span>↓</span> 4K</button>
-          <button class="action-btn secondary" id="btn-download-svg" style="border-color: var(--accent); color: var(--accent);"><span>↓</span> SVG</button>
-        </div>
-        <div class="action-buttons" style="margin-top:6px; display: grid; grid-template-columns: 1fr auto; gap: 6px;">
-          <button class="action-btn secondary" id="btn-record-video" style="border-color: #f04; color: #f04;"><span>●</span> GRABAR VIDEO</button>
-          <div class="select-wrap" style="width: 70px; margin-bottom: 0;">
-            <select id="record-duration-select" class="hud-select" style="padding: 2px 4px; font-size: 11px;">
-              <option value="5">5s</option>
-              <option value="10" selected>10s</option>
-              <option value="15">15s</option>
-              <option value="30">30s</option>
-            </select>
-            <span class="select-arrow" style="font-size: 8px; right: 4px; top: 50%; transform: translateY(-50%);">▼</span>
-          </div>
-      </div>
     </aside>
   </main>
 
   <footer class="footer">
-    <span>VECTORHEART STUDIO</span>
+    <span>HEARTFLASH STUDIO</span>
     <span class="footer-sep">◆</span>
     <span>ARTISTA::LIHUEL SOSA</span>
     <span class="footer-sep">◆</span>
-    <span>[G] GENERAR · [A] ANIMAR · [D] EXPORTAR · [ESPACIO] SEMILLA</span>
+    <span>[G] GENERAR · [R] RANDOM · [A] AUTOPILOT · [F] PANTALLA COMPLETA</span>
     <span class="footer-sep">◆</span>
     <span id="footer-seed">SEMILLA: --------</span>
     <span class="footer-sep">◆</span>

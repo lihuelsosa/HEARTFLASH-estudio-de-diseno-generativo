@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>HEARTFLASH LIVE</title>
+  <style>
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: #000;
+      color: #d2ddfa;
+      font-family: "Share Tech Mono", monospace;
+    }
+    body {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      position: relative;
+    }
+    #live-stage {
+      width: 100vw;
+      height: 100vh;
+      background: #000;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .live-hud {
+      position: absolute;
+      left: 16px;
+      right: 16px;
+      top: 14px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      pointer-events: none;
+      z-index: 5;
+    }
+    .live-chip {
+      border: 1px solid rgba(124,160,240,0.45);
+      background: rgba(6, 10, 20, 0.72);
+      color: #c0d8ff;
+      padding: 5px 9px;
+      font-size: 12px;
+      letter-spacing: 0.08em;
+      white-space: nowrap;
+    }
+    .live-hint {
+      position: absolute;
+      bottom: 16px;
+      left: 50%;
+      transform: translateX(-50%);
+      border: 1px solid rgba(124,160,240,0.35);
+      background: rgba(6, 10, 20, 0.82);
+      color: #a8b8df;
+      padding: 6px 10px;
+      font-size: 11px;
+      letter-spacing: 0.08em;
+      z-index: 5;
+      transition: opacity 0.2s ease;
+    }
+    .live-hint.hidden {
+      opacity: 0;
+    }
+  </style>
+</head>
+<body>
+  <div id="live-stage"></div>
+  <div class="live-hud">
+    <div class="live-chip" id="live-title">HEARTFLASH LIVE</div>
+    <div class="live-chip">CLICK o F = FULLSCREEN</div>
+  </div>
+  <div class="live-hint" id="live-hint">Mueve esta ventana al proyector si no se abrió ahí automáticamente</div>
+  <script>
+    (function () {
+      const hint = document.getElementById('live-hint');
+
+      async function enterFullscreen() {
+        try {
+          if (!document.fullscreenElement) {
+            await document.documentElement.requestFullscreen();
+          }
+          hint.classList.add('hidden');
+        } catch (e) {
+          // ignore
+        }
+      }
+
+      document.addEventListener('keydown', e => {
+        if (e.key.toLowerCase() === 'f') enterFullscreen();
+      });
+
+      document.addEventListener('click', () => {
+        enterFullscreen();
+      });
+
+      window.addEventListener('message', e => {
+        if (e.data && e.data.type === 'live-title') {
+          const el = document.getElementById('live-title');
+          if (el) el.textContent = e.data.value;
+        }
+      });
+    })();
+  </script>
+</body>
+</html>

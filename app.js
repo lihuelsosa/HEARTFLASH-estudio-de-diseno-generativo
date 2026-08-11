@@ -342,22 +342,20 @@
   // ── State ──────────────────────────────────────────────────────────────────
   const state = {
     isBatchUpdating: false,
-    mode: 'vectorheart', palette: 'mono', bg: 'light',
-    detail: 50, complexity: 20, density: 7, weight: 0, chaos: 0, textAmount: 0,
+    mode: 'vectorheart', palette: 'mono', bg: 'dark',
+    detail: 20, complexity: 5, density: 3, weight: 0, chaos: 0, textAmount: 0,
     customText: '', customFont: "'Share Tech Mono', monospace", customFontWeight: '400', customTextAmount: 0,
     customTextSize: 20, customTextOpacity: 70, customTextColor: 'auto',
     animDetail: false, animWeight: false, animChaos: false, animText: false,
     animCustomDensity: false, animCustomSize: false, animSeed: false, animPalette: false, animBg: false, animMode: false,
     animEffects: false,
-    animSpeed: 15,
-    animSpeedMod: 0,
     currentAnimSpeed: 15,
-    animSpeedModWave: 'triangle',
+    lfoUiSpeedBucket: 15,
     animAmountDetail: 100, animAmountWeight: 100, animAmountChaos: 100, animAmountText: 100,
     animAmountCustomDensity: 100, animAmountCustomSize: 100, animAmountSeed: 100, animAmountPalette: 100, animAmountBg: 100, animAmountMode: 100,
     animAmountEffects: 100,
     effectsIntensity: 1.0,
-    animNoise: 0, fadeDuration: 3,
+    fadeDuration: 3,
     symmetry: 'none',
     vignette: false, grain: false, scanlines: false,
     chromatic: false, glitch: false, static: false,
@@ -367,9 +365,122 @@
     hasGenerated: true,
     animWave: 'triangle',
     activeTab: 0,
+    lfos: [
+      { wave: 'sine',     rate: 8  },
+      { wave: 'triangle', rate: 6  },
+      { wave: 'square',   rate: 10 },
+    ],
+    liveLfoRates: [8, 6, 10],
+    patches: {
+      detail:        [null, null, null, null, null, null],
+      weight:        [null, null, null, null, null, null],
+      chaos:         [null, null, null, null, null, null],
+      text:          [null, null, null, null, null, null],
+      customDensity: [null, null, null, null, null, null],
+      customSize:    [null, null, null, null, null, null],
+      lfo1Rate:      [null, null, null, null, null, null],
+      lfo2Rate:      [null, null, null, null, null, null],
+      lfo3Rate:      [null, null, null, null, null, null],
+      effects:       [null, null, null, null, null, null],
+      seed:          [null, null, null, null, null, null],
+      palette:       [null, null, null, null, null, null],
+      bg:            [null, null, null, null, null, null],
+      mode:          [null, null, null, null, null, null],
+    },
+    blockLocks: {
+      mode: false,
+      params: false,
+      text: false,
+      symmetry: false,
+      palette: false,
+      bg: false,
+      effects: false,
+      lfo: false,
+      audio: false
+    },
+    // Audio-reactivity scaffold (implementation can be plugged in without reshaping state)
+    audioRx: {
+      enabled: false,
+      source: 'mic',
+      deviceId: 'default',
+      lowAmount: 55,
+      midAmount: 45,
+      highAmount: 35,
+      masterSend: 100,
+      smooth: 0.82,
+      level: 0,
+      lowLevel: 0,
+      midLevel: 0,
+      highLevel: 0,
+      ready: false
+    },
   };
 
+  const LFO_SOURCE_COUNT = 3;
+  const BAND_SOURCE_COUNT = 3;
+  const MOD_SOURCE_COUNT = LFO_SOURCE_COUNT + BAND_SOURCE_COUNT;
+
+  // Keep patch matrix shape stable if old states only had 3 sources.
+  Object.keys(state.patches).forEach(dest => {
+    while (state.patches[dest].length < MOD_SOURCE_COUNT) state.patches[dest].push(null);
+    if (state.patches[dest].length > MOD_SOURCE_COUNT) state.patches[dest].length = MOD_SOURCE_COUNT;
+  });
+
+  const BLOCK_DEFS = {
+    mode: { lfoTargets: ['mode'], patchDests: ['mode'] },
+    params: { lfoTargets: ['detail', 'weight', 'chaos', 'text'], patchDests: ['detail', 'weight', 'chaos', 'text'] },
+    text: { lfoTargets: ['text', 'customDensity', 'customSize'], patchDests: ['customDensity', 'customSize'] },
+    symmetry: { lfoTargets: [], patchDests: [] },
+    palette: { lfoTargets: ['palette'], patchDests: ['palette'] },
+    bg: { lfoTargets: ['bg'], patchDests: ['bg'] },
+    effects: { lfoTargets: ['effects'], patchDests: ['effects'] },
+    lfo: { lfoTargets: ['lfo1Rate', 'lfo2Rate', 'lfo3Rate'], patchDests: ['lfo1Rate', 'lfo2Rate', 'lfo3Rate'] },
+    audio: { lfoTargets: [], patchDests: [] }
+  };
+
+  const DEST_TO_BLOCK_KEY = {};
+  Object.entries(BLOCK_DEFS).forEach(([blockKey, def]) => {
+    def.patchDests.forEach(dest => { DEST_TO_BLOCK_KEY[dest] = blockKey; });
+  });
+
+  const LOCK_BUTTON_META = [
+    { blockKey: 'mode', label: 'MODO' },
+    { blockKey: 'params', label: 'PARÁMETROS' },
+    { blockKey: 'text', label: 'TEXTO' },
+    { blockKey: 'symmetry', label: 'SIMETRÍA' },
+    { blockKey: 'palette', label: 'PALETA' },
+    { blockKey: 'bg', label: 'FONDO' },
+    { blockKey: 'effects', label: 'EFECTOS' },
+    { blockKey: 'lfo', label: 'MOD LFO' },
+    { blockKey: 'audio', label: 'AUDIO' }
+  ];
+
+  function isBlockLocked(blockKey) {
+    return !!state.blockLocks[blockKey];
+  }
+
+  function getDestBlockKey(destKey) {
+    return DEST_TO_BLOCK_KEY[destKey] || null;
+  }
+
+  function setBlockLock(blockKey, locked) {
+    state.blockLocks[blockKey] = !!locked;
+    syncBlockLockUi();
+  }
+
   const customFontDataUrls = [];
+  const audioRxRuntime = {
+    ctx: null,
+    analyser: null,
+    sourceNode: null,
+    stream: null,
+    rawStream: null,
+    timeData: null,
+    freqData: null,
+    lowPeak: 0,
+    midPeak: 0,
+    highPeak: 0,
+  };
 
   // ── Adaptive frame budget ─────────────────────────────────────────────────
   // Tracks rolling-average draw time and adjusts complexity to target 60 FPS.
@@ -390,10 +501,262 @@
     textAmount: 0,
     customTextAmount: 0,
     customTextSize: 20,
+    seed: state.seed,
     paletteIdx: 0,
     bgIdx: 0,
     modeIdx: 0
   };
+
+  const MIDI_MAPPINGS_STORAGE_KEY = 'heartflash-midi-mappings-v1';
+  const MIDI_MAPPABLE_SELECTOR = 'input[type="range"], input[type="number"], input[type="checkbox"], select, .lfo-wave-btn, .patch-port, .lfo-rate-slider, .depth-slider, button[id^="btn-"]';
+  const midiLearn = {
+    access: null,
+    armed: false,
+    targetKey: null,
+    mappings: {},
+    requesting: null,
+    lastButtonTrigger: {},
+  };
+
+  function setFooterInfo(msg) {
+    const footer = document.getElementById('footer-info');
+    if (footer) footer.textContent = msg;
+  }
+
+  function loadMidiMappings() {
+    try {
+      const raw = localStorage.getItem(MIDI_MAPPINGS_STORAGE_KEY);
+      if (!raw) return {};
+      const parsed = JSON.parse(raw);
+      return parsed && typeof parsed === 'object' ? parsed : {};
+    } catch (_) {
+      return {};
+    }
+  }
+
+  function saveMidiMappings() {
+    try {
+      localStorage.setItem(MIDI_MAPPINGS_STORAGE_KEY, JSON.stringify(midiLearn.mappings));
+    } catch (_) {
+      // Ignore storage write failures.
+    }
+  }
+
+  function getMidiControlKey(el) {
+    if (!el) return null;
+    if (el.id) return `id:${el.id}`;
+    if (el.matches('.lfo-rate-slider[data-lfo]')) return `lfo-rate:${el.dataset.lfo}`;
+    if (el.matches('.depth-slider[data-dest][data-lfo]')) return `depth:${el.dataset.dest}:${el.dataset.lfo}`;
+    if (el.matches('.patch-port[data-dest][data-lfo]')) return `patch-port:${el.dataset.dest}:${el.dataset.lfo}`;
+    if (el.matches('.lfo-wave-btn[data-lfo][data-wave]')) return `lfo-wave:${el.dataset.lfo}:${el.dataset.wave}`;
+    return null;
+  }
+
+  function resolveMidiControlByKey(key) {
+    if (!key) return null;
+    if (key.startsWith('id:')) return document.getElementById(key.slice(3));
+    if (key.startsWith('lfo-rate:')) {
+      const idx = key.split(':')[1];
+      return document.querySelector(`.lfo-rate-slider[data-lfo="${idx}"]`);
+    }
+    if (key.startsWith('depth:')) {
+      const [, dest, lfoIdx] = key.split(':');
+      return document.querySelector(`.depth-slider[data-dest="${dest}"][data-lfo="${lfoIdx}"]`);
+    }
+    if (key.startsWith('patch-port:')) {
+      const [, dest, lfoIdx] = key.split(':');
+      return document.querySelector(`.patch-port[data-dest="${dest}"][data-lfo="${lfoIdx}"]`);
+    }
+    if (key.startsWith('lfo-wave:')) {
+      const [, lfoIdx, wave] = key.split(':');
+      return document.querySelector(`.lfo-wave-btn[data-lfo="${lfoIdx}"][data-wave="${wave}"]`);
+    }
+    return null;
+  }
+
+  function clearMidiTargetMarker() {
+    document.querySelectorAll('.midi-learn-target').forEach(el => el.classList.remove('midi-learn-target'));
+  }
+
+  function setMidiTargetByElement(el) {
+    const key = getMidiControlKey(el);
+    if (!key) return;
+    midiLearn.targetKey = key;
+    clearMidiTargetMarker();
+    const target = resolveMidiControlByKey(key) || el;
+    target.classList.add('midi-learn-target');
+    setFooterInfo(`MIDI LEARN::CONTROL ${key.toUpperCase()} · MOVÉ UN KNOB`);
+  }
+
+  function updateMidiLearnButton() {
+    const btn = document.getElementById('btn-midi-learn');
+    if (!btn) return;
+    const supported = typeof navigator !== 'undefined' && 'requestMIDIAccess' in navigator;
+    btn.disabled = !supported;
+    btn.classList.toggle('active', midiLearn.armed);
+    btn.title = supported ? 'Activar MIDI Learn' : 'Web MIDI no disponible en este navegador';
+  }
+
+  function setMidiLearnArmed(active) {
+    midiLearn.armed = !!active;
+    document.body.classList.toggle('midi-learning', midiLearn.armed);
+    if (!midiLearn.armed) {
+      midiLearn.targetKey = null;
+      clearMidiTargetMarker();
+    }
+    updateMidiLearnButton();
+  }
+
+  function quantizeToStep(value, min, step) {
+    if (!Number.isFinite(step) || step <= 0) return value;
+    const steps = Math.round((value - min) / step);
+    return min + steps * step;
+  }
+
+  function dispatchControlEvents(el) {
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+    el.dispatchEvent(new Event('change', { bubbles: true }));
+  }
+
+  function applyMidiValueToControl(key, normalizedValue, sourceKey) {
+    const control = resolveMidiControlByKey(key);
+    if (!control) return;
+    const t = Math.max(0, Math.min(1, normalizedValue));
+
+    if (control.matches('input[type="range"], input[type="number"]')) {
+      const min = Number(control.min);
+      const max = Number(control.max);
+      const lo = Number.isFinite(min) ? min : 0;
+      const hi = Number.isFinite(max) ? max : 100;
+      const step = Number(control.step);
+      let nextValue = lo + (hi - lo) * t;
+      nextValue = quantizeToStep(nextValue, lo, step);
+      nextValue = Math.max(lo, Math.min(hi, nextValue));
+      if (Number(control.value) !== nextValue) {
+        control.value = String(nextValue);
+        dispatchControlEvents(control);
+      }
+      return;
+    }
+
+    if (control.matches('select')) {
+      const maxIndex = Math.max(0, control.options.length - 1);
+      const nextIndex = Math.round(t * maxIndex);
+      if (control.selectedIndex !== nextIndex) {
+        control.selectedIndex = nextIndex;
+        control.dispatchEvent(new Event('change', { bubbles: true }));
+      }
+      return;
+    }
+
+    if (control.matches('input[type="checkbox"]')) {
+      const nextChecked = t >= 0.5;
+      if (control.checked !== nextChecked) {
+        control.checked = nextChecked;
+        control.dispatchEvent(new Event('change', { bubbles: true }));
+      }
+      return;
+    }
+
+    if (control.tagName === 'BUTTON') {
+      if (t < 0.5) return;
+      const now = performance.now();
+      const gateKey = `${sourceKey}|${key}`;
+      const last = midiLearn.lastButtonTrigger[gateKey] || 0;
+      if (now - last < 180) return;
+      midiLearn.lastButtonTrigger[gateKey] = now;
+      control.click();
+    }
+  }
+
+  function parseMidiMessage(messageEvent) {
+    const [status = 0, data1 = 0, data2 = 0] = messageEvent.data || [];
+    const type = status & 0xf0;
+    const channel = status & 0x0f;
+    if (type === 0xb0) {
+      return { sourceKey: `cc:${channel}:${data1}`, normalized: data2 / 127 };
+    }
+    if (type === 0x90 || type === 0x80) {
+      const normalized = type === 0x80 ? 0 : data2 / 127;
+      return { sourceKey: `note:${channel}:${data1}`, normalized };
+    }
+    return null;
+  }
+
+  function onMidiMessage(messageEvent) {
+    const parsed = parseMidiMessage(messageEvent);
+    if (!parsed) return;
+    const { sourceKey, normalized } = parsed;
+
+    if (midiLearn.armed && midiLearn.targetKey) {
+      midiLearn.mappings[sourceKey] = midiLearn.targetKey;
+      saveMidiMappings();
+      setFooterInfo(`MIDI MAP::${sourceKey.toUpperCase()} -> ${midiLearn.targetKey.toUpperCase()}`);
+      setMidiLearnArmed(false);
+    }
+
+    const mappedKey = midiLearn.mappings[sourceKey];
+    if (mappedKey) applyMidiValueToControl(mappedKey, normalized, sourceKey);
+  }
+
+  function bindMidiInputs(access) {
+    access.inputs.forEach(input => {
+      input.onmidimessage = onMidiMessage;
+    });
+  }
+
+  function ensureMidiAccess() {
+    if (midiLearn.access) return Promise.resolve(true);
+    if (typeof navigator === 'undefined' || !('requestMIDIAccess' in navigator)) return Promise.resolve(false);
+    if (midiLearn.requesting) return midiLearn.requesting;
+
+    midiLearn.requesting = navigator.requestMIDIAccess({ sysex: false })
+      .then(access => {
+        midiLearn.access = access;
+        bindMidiInputs(access);
+        access.onstatechange = () => bindMidiInputs(access);
+        return true;
+      })
+      .catch(err => {
+        console.warn('MIDI access denied/unavailable:', err);
+        setFooterInfo('MIDI::SIN ACCESO (REVISÁ PERMISOS DEL NAVEGADOR)');
+        return false;
+      })
+      .finally(() => {
+        midiLearn.requesting = null;
+        updateMidiLearnButton();
+      });
+
+    return midiLearn.requesting;
+  }
+
+  function initMidiLearn() {
+    midiLearn.mappings = loadMidiMappings();
+    updateMidiLearnButton();
+
+    document.addEventListener('click', (event) => {
+      if (!midiLearn.armed) return;
+      const candidate = event.target.closest(MIDI_MAPPABLE_SELECTOR);
+      if (!candidate) return;
+      if (candidate.id === 'btn-midi-learn') return;
+      setMidiTargetByElement(candidate);
+    });
+
+    const midiBtn = document.getElementById('btn-midi-learn');
+    if (!midiBtn) return;
+    midiBtn.addEventListener('click', () => {
+      if (midiLearn.armed) {
+        setMidiLearnArmed(false);
+        setFooterInfo('MIDI LEARN::OFF');
+        return;
+      }
+      ensureMidiAccess().then(ok => {
+        if (!ok) return;
+        setMidiLearnArmed(true);
+        setFooterInfo('MIDI LEARN::ON · ELEGÍ UN CONTROL');
+      });
+    });
+  }
 
   // ── Canvas & SVG ───────────────────────────────────────────────────────────
   const canvas = document.getElementById('main-canvas');
@@ -405,12 +768,11 @@
 
   function resizeCanvas() {
     const wrapper = canvas.parentElement;
-    const maxW = wrapper.clientWidth - 2;
-    const isMobile = window.innerWidth <= 768;
-    const maxH = wrapper.clientHeight - (isMobile ? 22 : 26);
-    const aspect = maxH > maxW ? 1 : 16 / 9;
-    let w = maxW, h = maxW / aspect;
-    if (h > maxH) { h = maxH; w = h * aspect; }
+    // clientWidth/Height include padding; subtract it to get the visual content area
+    const cs = getComputedStyle(wrapper);
+    const maxW = wrapper.clientWidth  - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
+    const maxH = wrapper.clientHeight - parseFloat(cs.paddingTop)  - parseFloat(cs.paddingBottom);
+    let w = maxW, h = maxH;
     const dpr = window.devicePixelRatio || 1;
     const W = Math.floor(w * dpr), H = Math.floor(h * dpr);
     canvas.width = W; canvas.height = H;
@@ -438,6 +800,394 @@
   function rng() {
     rngState ^= rngState << 13; rngState ^= rngState >> 17; rngState ^= rngState << 5;
     return (rngState >>> 0) / 4294967296;
+  }
+
+  function updateAudioRxUi() {
+    const toggle = document.getElementById('btn-audio-rx');
+    const meterFill = document.getElementById('audio-rx-meter-fill');
+    const lowFill = document.getElementById('audio-band-low-fill');
+    const midFill = document.getElementById('audio-band-mid-fill');
+    const highFill = document.getElementById('audio-band-high-fill');
+    const masterSendVal = document.getElementById('audio-master-send-val');
+    const smoothVal = document.getElementById('audio-smooth-val');
+    const sourceSelect = document.getElementById('audio-source-select');
+    const deviceSelect = document.getElementById('audio-device-select');
+
+    if (toggle) {
+      const on = state.audioRx.enabled && state.audioRx.ready;
+      toggle.classList.toggle('active', on);
+      toggle.textContent = on ? 'AUDIO RX::ON' : 'AUDIO RX::OFF';
+    }
+    if (sourceSelect && sourceSelect.value !== state.audioRx.source) sourceSelect.value = state.audioRx.source;
+    if (deviceSelect) {
+      deviceSelect.style.display = 'block';
+      deviceSelect.disabled = false;
+      if (state.audioRx.deviceId && deviceSelect.value !== state.audioRx.deviceId) {
+        const hasOption = Array.from(deviceSelect.options).some(opt => opt.value === state.audioRx.deviceId);
+        if (hasOption) deviceSelect.value = state.audioRx.deviceId;
+      }
+    }
+    if (meterFill) meterFill.style.width = `${Math.round(Math.max(0, Math.min(1, state.audioRx.level)) * 100)}%`;
+    if (lowFill) lowFill.style.width = `${Math.round(Math.max(0, Math.min(1, state.audioRx.lowLevel)) * 100)}%`;
+    if (midFill) midFill.style.width = `${Math.round(Math.max(0, Math.min(1, state.audioRx.midLevel)) * 100)}%`;
+    if (highFill) highFill.style.width = `${Math.round(Math.max(0, Math.min(1, state.audioRx.highLevel)) * 100)}%`;
+    if (masterSendVal) masterSendVal.textContent = `${Math.round(state.audioRx.masterSend)}`;
+    if (smoothVal) smoothVal.textContent = `${Math.round(state.audioRx.smooth * 100)}`;
+    updateAudioPatchIndicators();
+  }
+
+  function pickPreferredAudioInput(devices, mode) {
+    if (!devices.length) return 'default';
+    if (mode === 'linein') {
+      // Match true line-in/aux hardware — explicitly exclude loopback/stereo-mix devices
+      const loopRegex = /(stereo mix|what u hear|loopback|mezcla estereo|monitor of)/i;
+      const lineRegex = /(line.?in|aux|entrada de l[ií]nea|line\s+input|analog)/i;
+      const match = devices.find(d =>
+        d.kind === 'audioinput' &&
+        lineRegex.test(d.label || '') &&
+        !loopRegex.test(d.label || '')
+      );
+      if (match) return match.deviceId;
+    }
+    const def = devices.find(d => d.deviceId === 'default');
+    return (def && def.deviceId) || devices[0].deviceId || 'default';
+  }
+
+  async function refreshAudioInputDevices() {
+    const deviceSelect = document.getElementById('audio-device-select');
+    if (!deviceSelect || !navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) return;
+    try {
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const inputs = devices.filter(d => d.kind === 'audioinput');
+      const prev = state.audioRx.deviceId || 'default';
+      deviceSelect.innerHTML = '';
+      if (!inputs.length) {
+        const opt = document.createElement('option');
+        opt.value = 'default';
+        opt.textContent = 'SISTEMA (DEFAULT)';
+        deviceSelect.appendChild(opt);
+        state.audioRx.deviceId = 'default';
+        updateAudioRxUi();
+        return;
+      }
+
+      inputs.forEach((dev, idx) => {
+        const opt = document.createElement('option');
+        opt.value = dev.deviceId || `dev-${idx}`;
+        const label = (dev.label || '').trim();
+        opt.textContent = label || `ENTRADA ${idx + 1}`;
+        deviceSelect.appendChild(opt);
+      });
+
+      const preferred = prev !== 'default' ? prev : pickPreferredAudioInput(inputs, state.audioRx.source);
+      const hasPreferred = Array.from(deviceSelect.options).some(opt => opt.value === preferred);
+      state.audioRx.deviceId = hasPreferred ? preferred : (deviceSelect.options[0]?.value || 'default');
+      deviceSelect.value = state.audioRx.deviceId;
+    } catch (err) {
+      // Keep existing selection when enumeration is blocked.
+    }
+    updateAudioRxUi();
+  }
+
+  async function tryLoopbackInputDevice(preferredDeviceId = null) {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) return null;
+    const devices = await navigator.mediaDevices.enumerateDevices();
+    if (preferredDeviceId && preferredDeviceId !== 'default') {
+      const selected = devices.find(d => d.kind === 'audioinput' && d.deviceId === preferredDeviceId);
+      if (selected) {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          audio: {
+            deviceId: { exact: selected.deviceId },
+            echoCancellation: false,
+            noiseSuppression: false,
+            autoGainControl: false,
+          }
+        });
+        return { stream, rawStream: stream, sourceLabel: 'LOOPBACK DEVICE' };
+      }
+    }
+
+    const loopRegex = /(stereo mix|what u hear|loopback|mezcla estereo|monitor)/i;
+    const loopInput = devices.find(d => d.kind === 'audioinput' && loopRegex.test(d.label || ''));
+    if (!loopInput) return null;
+
+    const stream = await navigator.mediaDevices.getUserMedia({
+      audio: {
+        deviceId: { exact: loopInput.deviceId },
+        echoCancellation: false,
+        noiseSuppression: false,
+        autoGainControl: false,
+      }
+    });
+    return { stream, rawStream: stream, sourceLabel: 'LOOPBACK INPUT' };
+  }
+
+  async function createAudioStreamForSource() {
+    if (!navigator.mediaDevices) throw new Error('NO_MEDIA_DEVICES');
+
+    if (state.audioRx.source === 'loopback') {
+      // ── 1. Try the user-selected device directly (may be a virtual cable) ──
+      const selId = state.audioRx.deviceId;
+      if (selId && selId !== 'default') {
+        try {
+          const stream = await navigator.mediaDevices.getUserMedia({
+            audio: {
+              deviceId: { exact: selId },
+              echoCancellation: false, noiseSuppression: false, autoGainControl: false,
+            }
+          });
+          return { stream, rawStream: stream, sourceLabel: 'LOOPBACK DEVICE' };
+        } catch(e) { /* continue */ }
+      }
+
+      // ── 2. Request audio permission so device labels become readable, then
+      //       look for Stereo Mix / What U Hear / virtual cable ──────────────
+      let permStream = null;
+      try {
+        permStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      } catch(e) { /* permission denied — labels stay empty */ }
+
+      const loopInput = await tryLoopbackInputDevice(null);
+      if (permStream) permStream.getTracks().forEach(t => t.stop());
+      if (loopInput) return loopInput;
+
+      // ── 3. getDisplayMedia fallback (current tab + system audio) ──────────
+      if (navigator.mediaDevices.getDisplayMedia) {
+        try {
+          const displayStream = await navigator.mediaDevices.getDisplayMedia({
+            preferCurrentTab: true,
+            selfBrowserSurface: 'include',
+            surfaceSwitching: 'exclude',
+            systemAudio: 'include',
+            video: { frameRate: 1 },
+            audio: {
+              echoCancellation: false, noiseSuppression: false,
+              autoGainControl: false, suppressLocalAudioPlayback: false,
+            }
+          });
+          const tracks = displayStream.getAudioTracks();
+          if (tracks.length) {
+            return { stream: new MediaStream([tracks[0]]), rawStream: displayStream, sourceLabel: 'LOOPBACK DISPLAY' };
+          }
+          displayStream.getTracks().forEach(t => t.stop());
+        } catch(err) { /* user cancelled dialog */ }
+      }
+
+      throw new Error('LOOPBACK_NO_AUDIO_TRACK');
+    }
+
+    const tuneForLine = state.audioRx.source === 'linein';
+    const loopExclude = /(stereo mix|what u hear|loopback|mezcla estereo|monitor of)/i;
+
+    // For MIC and LINE-IN: enumerate devices (request permission first so labels are visible),
+    // then pick the right device excluding loopback-type inputs.
+    {
+      // Request permission to reveal device labels
+      let permStream = null;
+      try {
+        permStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        permStream.getTracks().forEach(t => t.stop());
+      } catch(e) { throw e; }
+
+      const allDevices = await navigator.mediaDevices.enumerateDevices();
+      const inputs = allDevices.filter(d => d.kind === 'audioinput' && !loopExclude.test(d.label || ''));
+
+      if (!inputs.length) {
+        throw new Error(tuneForLine ? 'NO_LINE_INPUT_FOUND' : 'NO_MIC_FOUND');
+      }
+
+      // Prefer the user-selected device if it's non-loopback, otherwise take first non-loopback
+      const selId = state.audioRx.deviceId;
+      const target = (selId && selId !== 'default' && inputs.some(d => d.deviceId === selId))
+        ? selId
+        : inputs[0].deviceId;
+
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          deviceId: { exact: target },
+          echoCancellation: !tuneForLine,
+          noiseSuppression: !tuneForLine,
+          autoGainControl: !tuneForLine,
+        }
+      });
+      // Update state so the dropdown reflects the actual device in use
+      state.audioRx.deviceId = target;
+      return { stream, rawStream: stream, sourceLabel: tuneForLine ? 'LINE-IN' : 'MIC' };
+    }
+  }
+
+  // RMS energy over a frequency range — more perceptually accurate than linear mean.
+  // Weights each bin equally in power (v²), then takes the root for amplitude.
+  function getBandRms(freqData, fromBin, toBin) {
+    if (!freqData || !freqData.length) return 0;
+    const a = Math.max(0, Math.min(freqData.length - 1, fromBin));
+    const b = Math.max(0, Math.min(freqData.length - 1, toBin));
+    if (b < a) return 0;
+    let sumSq = 0;
+    let count = 0;
+    for (let i = a; i <= b; i++) {
+      const v = freqData[i] / 255;
+      sumSq += v * v;
+      count++;
+    }
+    return count ? Math.sqrt(sumSq / count) : 0;
+  }
+
+  async function enableAudioReactiveInput() {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      document.getElementById('footer-info').textContent = 'AUDIO RX::NO DISPONIBLE';
+      return;
+    }
+    try {
+      if (!audioRxRuntime.ctx) {
+        const AudioCtx = window.AudioContext || window.webkitAudioContext;
+        audioRxRuntime.ctx = new AudioCtx();
+      }
+      if (audioRxRuntime.ctx.state === 'suspended') await audioRxRuntime.ctx.resume();
+
+      if (audioRxRuntime.sourceNode) {
+        audioRxRuntime.sourceNode.disconnect();
+        audioRxRuntime.sourceNode = null;
+      }
+      if (audioRxRuntime.stream) {
+        audioRxRuntime.stream.getTracks().forEach(t => t.stop());
+        audioRxRuntime.stream = null;
+      }
+      if (audioRxRuntime.rawStream && audioRxRuntime.rawStream !== audioRxRuntime.stream) {
+        audioRxRuntime.rawStream.getTracks().forEach(t => t.stop());
+        audioRxRuntime.rawStream = null;
+      }
+
+      const streamPack = await createAudioStreamForSource();
+      audioRxRuntime.stream = streamPack.stream;
+      audioRxRuntime.rawStream = streamPack.rawStream;
+
+      audioRxRuntime.sourceNode = audioRxRuntime.ctx.createMediaStreamSource(audioRxRuntime.stream);
+      audioRxRuntime.analyser = audioRxRuntime.ctx.createAnalyser();
+      audioRxRuntime.analyser.fftSize = 4096;   // higher resolution for low-freq accuracy
+      audioRxRuntime.analyser.smoothingTimeConstant = 0; // all smoothing done in JS
+      audioRxRuntime.sourceNode.connect(audioRxRuntime.analyser);
+      audioRxRuntime.timeData = new Uint8Array(audioRxRuntime.analyser.fftSize);
+      audioRxRuntime.freqData = new Uint8Array(audioRxRuntime.analyser.frequencyBinCount);
+      audioRxRuntime.lowPeak = 0;
+      audioRxRuntime.midPeak = 0;
+      audioRxRuntime.highPeak = 0;
+
+      state.audioRx.enabled = true;
+      state.audioRx.ready = true;
+      document.getElementById('footer-info').textContent = `AUDIO RX::${streamPack.sourceLabel || 'ON'}`;
+    } catch (err) {
+      state.audioRx.enabled = false;
+      state.audioRx.ready = false;
+      const msg = String(err && err.message || '');
+      if (msg.includes('NO_AUDIO_TRACK')) {
+        document.getElementById('footer-info').textContent = 'LOOPBACK::INSTALÁ VB-CABLE O HABILITÁ STEREO MIX — O ACEPTAR EL DIALOG DE AUDIO DEL TAB';
+      } else if (msg.includes('NO_MIC_FOUND')) {
+        document.getElementById('footer-info').textContent = 'MIC::NO SE DETECTÓ MICRÓFONO (SOLO DISPOSITIVOS LOOPBACK DISPONIBLES)';
+      } else if (msg.includes('NO_LINE_INPUT_FOUND')) {
+        document.getElementById('footer-info').textContent = 'LINE-IN::NO SE DETECTÓ ENTRADA DE LÍNEA';
+      } else {
+        document.getElementById('footer-info').textContent = 'AUDIO RX::PERMISO DENEGADO';
+      }
+    }
+    updateAudioRxUi();
+  }
+
+  function disableAudioReactiveInput() {
+    state.audioRx.enabled = false;
+    state.audioRx.ready = false;
+    state.audioRx.level = 0;
+    if (audioRxRuntime.sourceNode) {
+      audioRxRuntime.sourceNode.disconnect();
+      audioRxRuntime.sourceNode = null;
+    }
+    if (audioRxRuntime.stream) {
+      audioRxRuntime.stream.getTracks().forEach(t => t.stop());
+      audioRxRuntime.stream = null;
+    }
+    if (audioRxRuntime.rawStream && audioRxRuntime.rawStream !== audioRxRuntime.stream) {
+      audioRxRuntime.rawStream.getTracks().forEach(t => t.stop());
+      audioRxRuntime.rawStream = null;
+    }
+    audioRxRuntime.analyser = null;
+    audioRxRuntime.timeData = null;
+    audioRxRuntime.freqData = null;
+    audioRxRuntime.lowPeak = 0;
+    audioRxRuntime.midPeak = 0;
+    audioRxRuntime.highPeak = 0;
+    state.audioRx.lowLevel = 0;
+    state.audioRx.midLevel = 0;
+    state.audioRx.highLevel = 0;
+    updateAudioRxUi();
+  }
+
+  function sampleAudioReactiveLevel() {
+    if (state.audioRx.enabled && state.audioRx.ready && audioRxRuntime.analyser && audioRxRuntime.timeData) {
+      // analyser.smoothingTimeConstant is fixed at 0; all smoothing is controlled here in JS
+      audioRxRuntime.analyser.getByteTimeDomainData(audioRxRuntime.timeData);
+      if (audioRxRuntime.freqData) audioRxRuntime.analyser.getByteFrequencyData(audioRxRuntime.freqData);
+
+      // ── Overall level: time-domain RMS ───────────────────────────────────
+      let sumSq = 0;
+      for (let i = 0; i < audioRxRuntime.timeData.length; i++) {
+        const v = (audioRxRuntime.timeData[i] - 128) / 128;
+        sumSq += v * v;
+      }
+      const rms = Math.sqrt(sumSq / audioRxRuntime.timeData.length);
+      const boosted = Math.min(1, rms * 3.5);
+
+      // ── Band RMS with musical frequency ranges ────────────────────────────
+      const sampleRate = (audioRxRuntime.ctx && audioRxRuntime.ctx.sampleRate) || 48000;
+      const fftSize = (audioRxRuntime.analyser && audioRxRuntime.analyser.fftSize) || 4096;
+      const binHz = sampleRate / fftSize;
+      // LOW  45–250 Hz  (trim sub-rumble from open mics)
+      // MID  250–4000 Hz (vocals, instruments, presence)
+      // HIGH 4000–16000 Hz (air, brilliance, hi-hats)
+      const lowRaw  = getBandRms(audioRxRuntime.freqData, Math.max(1, Math.floor(45   / binHz)), Math.floor(250   / binHz));
+      const midRaw  = getBandRms(audioRxRuntime.freqData, Math.floor(250  / binHz), Math.floor(4000  / binHz));
+      const highRaw = getBandRms(audioRxRuntime.freqData, Math.floor(4000 / binHz), Math.floor(16000 / binHz));
+
+      // ── Per-band adaptive peak tracking (slow decay ≈ 3 s @ 60 fps) ──────
+      // Normalises each band to its recent maximum so all bands stay active
+      // even with spectrally unbalanced sources (e.g. bass-heavy music).
+      const PEAK_DECAY  = 0.9983;
+      const LOW_NOISE_FLOOR  = 0.03;
+      const MID_NOISE_FLOOR  = 0.018;
+      const HIGH_NOISE_FLOOR = 0.015;
+      const lowSignal  = Math.max(0, lowRaw  - LOW_NOISE_FLOOR);
+      const midSignal  = Math.max(0, midRaw  - MID_NOISE_FLOOR);
+      const highSignal = Math.max(0, highRaw - HIGH_NOISE_FLOOR);
+      audioRxRuntime.lowPeak  = Math.max(lowSignal,  (audioRxRuntime.lowPeak  || LOW_NOISE_FLOOR)  * PEAK_DECAY);
+      audioRxRuntime.midPeak  = Math.max(midSignal,  (audioRxRuntime.midPeak  || MID_NOISE_FLOOR)  * PEAK_DECAY);
+      audioRxRuntime.highPeak = Math.max(highSignal, (audioRxRuntime.highPeak || HIGH_NOISE_FLOOR) * PEAK_DECAY);
+
+      // Blend: 65% adaptive-normalised + 35% absolute so quiet sources don't
+      // inflate to 100% — keeps a natural dynamic feel.
+      const lowNorm  = lowSignal  > 0 ? Math.min(1, lowSignal  / Math.max(LOW_NOISE_FLOOR,  audioRxRuntime.lowPeak))  : 0;
+      const midNorm  = midSignal  > 0 ? Math.min(1, midSignal  / Math.max(MID_NOISE_FLOOR,  audioRxRuntime.midPeak))  : 0;
+      const highNorm = highSignal > 0 ? Math.min(1, highSignal / Math.max(HIGH_NOISE_FLOOR, audioRxRuntime.highPeak)) : 0;
+      const lowVal   = Math.min(1, 0.65 * lowNorm  + 0.35 * Math.min(1, lowSignal  * 4.0));
+      const midVal   = Math.min(1, 0.65 * midNorm  + 0.35 * Math.min(1, midSignal * 4.5));
+      const highVal  = Math.min(1, 0.65 * highNorm + 0.35 * Math.min(1, highSignal * 6.0));
+
+      // ── JS exponential smoothing (single layer — no double-smoothing) ─────
+      const smooth = Math.max(0, Math.min(0.98, state.audioRx.smooth));
+      const master = Math.max(0, state.audioRx.masterSend) / 100;
+      state.audioRx.level     = (state.audioRx.level     * smooth + boosted * (1 - smooth)) * master;
+      state.audioRx.lowLevel  = (state.audioRx.lowLevel  * smooth + lowVal  * (1 - smooth)) * master;
+      state.audioRx.midLevel  = (state.audioRx.midLevel  * smooth + midVal  * (1 - smooth)) * master;
+      state.audioRx.highLevel = (state.audioRx.highLevel * smooth + highVal * (1 - smooth)) * master;
+    } else {
+      state.audioRx.level     *= 0.9;
+      state.audioRx.lowLevel  *= 0.9;
+      state.audioRx.midLevel  *= 0.9;
+      state.audioRx.highLevel *= 0.9;
+    }
+    updateAudioRxUi();
+  }
+
+  function updateAudioPatchIndicators() {
+    // no-op kept to avoid call-site churn; can host future patch indicator refreshes
   }
   function rngRange(a, b) { return a + rng() * (b - a); }
   function rngInt(a, b) { return Math.floor(rngRange(a, b + 1)); }
@@ -475,11 +1225,27 @@
     matrix:    { bg_light:'#e8ffe8', bg_dark:'#000a00', bg_paper:'#f0fff0', bg_black:'#000400', colors:['#00ff00','#00cc00','#00ff66','#44ff44','#00aa00','#88ff88'], accent:'#00ff00', thin:'#00ff0033' },
     rust:      { bg_light:'#fff4ec', bg_dark:'#120800', bg_paper:'#fffaf5', bg_black:'#0c0400', colors:['#c74a00','#e8603a','#a03010','#f08050','#804020','#e8a060'], accent:'#c74a00', thin:'#c74a0044' },
     gundam:    { bg_light:'#e8f0e0', bg_dark:'#060a06', bg_paper:'#f0f4e8', bg_black:'#020402', colors:['#4cd964','#ffcc00','#ff8c00','#00e5ff','#b8ff3c','#ffffff'], accent:'#ffcc00', thin:'#4cd96444' },
-    evangelion:{ bg_light:'#fff0e8', bg_dark:'#0d0200', bg_paper:'#fff5f0', bg_black:'#080000', colors:['#ff6600','#ff2200','#ffaa00','#ffffff','#cc3300','#ff8800'], accent:'#ff6600', thin:'#ff660044' },
+    evangelion:{ bg_light:'#f4efff', bg_dark:'#09020f', bg_paper:'#fbf7ff', bg_black:'#040008', colors:['#7a35ff','#b05cff','#66ff33','#ff3b30','#ff9f0a','#ffffff'], accent:'#ff3b30', thin:'#7a35ff55' },
+    sunset:    { bg_light:'#fff0e8', bg_dark:'#120806', bg_paper:'#fdf5f0', bg_black:'#0c0402', colors:['#ff6b35','#f7c59f','#ff4d6d','#c9184a','#ff8fa3','#ffd166'], accent:'#ff6b35', thin:'#ff6b3544' },
+    ocean:     { bg_light:'#e8f4ff', bg_dark:'#020810', bg_paper:'#f0f8ff', bg_black:'#010610', colors:['#0077b6','#00b4d8','#90e0ef','#023e8a','#48cae4','#caf0f8'], accent:'#00b4d8', thin:'#0077b644' },
+    forest:    { bg_light:'#eaf5ea', bg_dark:'#040c04', bg_paper:'#f4faf4', bg_black:'#020802', colors:['#2d6a4f','#40916c','#52b788','#74c69d','#b7e4c7','#d8f3dc'], accent:'#40916c', thin:'#2d6a4f44' },
+    nordic:    { bg_light:'#eceff4', bg_dark:'#2e3440', bg_paper:'#e5e9f0', bg_black:'#1c2028', colors:['#88c0d0','#81a1c1','#5e81ac','#b48ead','#a3be8c','#ebcb8b'], accent:'#88c0d0', thin:'#5e81ac44' },
+    sakura:    { bg_light:'#fff0f5', bg_dark:'#160610', bg_paper:'#fff5f8', bg_black:'#0e0408', colors:['#ff85a1','#ffc2d1','#ffb3c1','#ff758f','#c77dff','#e040fb'], accent:'#ff85a1', thin:'#ff85a133' },
+    lava:      { bg_light:'#fff0e0', bg_dark:'#0c0200', bg_paper:'#fff5ec', bg_black:'#080100', colors:['#ff4500','#ff6a00','#ff8c00','#ffd000','#cc2200','#ff2200'], accent:'#ff4500', thin:'#ff450044' },
+    synthwave: { bg_light:'#f0e8ff', bg_dark:'#07020f', bg_paper:'#f8f4ff', bg_black:'#050010', colors:['#f72585','#7209b7','#3a0ca3','#4361ee','#4cc9f0','#b5179e'], accent:'#f72585', thin:'#7209b744' },
+    toxic:     { bg_light:'#f4ffe8', bg_dark:'#030800', bg_paper:'#f8fff0', bg_black:'#020600', colors:['#aaff00','#ccff00','#88ff44','#ffff00','#66ff00','#33ff00'], accent:'#aaff00', thin:'#aaff0044' },
+  };
+
+  // Fixed bg overrides for new bg modes (palette-independent)
+  const BG_FIXED = {
+    midnight: '#070d1a', sepia: '#f2e2c0',
+    violet:   '#1a0835', jade:  '#041c0c',
+    wine:     '#280810', steel: '#081228',
+    copper:   '#2a1406', slate: '#101826'
   };
 
   function getPalette() { return PALETTES[state.palette]; }
-  function getBgColor() { return getPalette()[`bg_${state.bg}`]; }
+  function getBgColor() { return BG_FIXED[state.bg] ?? getPalette()[`bg_${state.bg}`]; }
   function getColors() { return getPalette().colors; }
   function getAccent() { return getPalette().accent; }
   function getThin() { return getPalette().thin; }
@@ -2060,7 +2826,7 @@
     const scale = 0.002 + state.complexity * 0.0008;
     const numParticles = isDetailPass ? 10 + state.density * 3 : 20 + state.density * 10;
     const steps = isDetailPass ? 10 + state.complexity : 15 + state.complexity * 2;
-    const currentSpeed = (state.animating && typeof state.currentAnimSpeed === 'number') ? state.currentAnimSpeed : state.animSpeed;
+    const currentSpeed = (state.animating && typeof state.currentAnimSpeed === 'number') ? state.currentAnimSpeed : 15;
     const speed = (2.5 + state.chaos * 0.5) * (1 + (currentSpeed - 15) / 30);
     const cFactor = state.chaos / 30.0;
 
@@ -3374,6 +4140,111 @@
   }
 
   // ─────────────────────────────────────────────────────────────────────────
+  //  VOLUMETRIC MODE — PSEUDO 3D WIREFRAME FORMS
+  // ─────────────────────────────────────────────────────────────────────────
+  function drawVolumetric(t = 0, isDetailPass = false) {
+    const W = offCanvas.width, H = offCanvas.height;
+    const colors = getColors();
+    const c = comp || buildComposition(W, H);
+    const cFactor = state.chaos / 30.0;
+
+    const rotateX = (p, a) => {
+      const ca = Math.cos(a), sa = Math.sin(a);
+      return { x: p.x, y: p.y * ca - p.z * sa, z: p.y * sa + p.z * ca };
+    };
+    const rotateY = (p, a) => {
+      const ca = Math.cos(a), sa = Math.sin(a);
+      return { x: p.x * ca + p.z * sa, y: p.y, z: -p.x * sa + p.z * ca };
+    };
+
+    const edgeList = [
+      [0, 1], [1, 2], [2, 3], [3, 0],
+      [4, 5], [5, 6], [6, 7], [7, 4],
+      [0, 4], [1, 5], [2, 6], [3, 7]
+    ];
+
+    const cubeCount = isDetailPass
+      ? Math.max(2, Math.floor(state.detail * 0.03))
+      : Math.max(4, Math.floor(state.detail * 0.08) + 2);
+
+    const perspective = Math.max(180, Math.min(W, H) * 0.55);
+
+    for (let i = 0; i < cubeCount; i++) {
+      const anchor = c.anchors[i % c.anchors.length];
+      const drift = isDetailPass ? 0.6 : 1;
+      const ox = anchor.x + (rng() - 0.5) * W * 0.18 * cFactor * drift;
+      const oy = anchor.y + (rng() - 0.5) * H * 0.16 * cFactor * drift;
+
+      const size = rngRange(Math.min(W, H) * 0.045, Math.min(W, H) * 0.16) * (1 + state.weight * 0.006);
+      const depth = rngRange(80, 340) + i * 26;
+      const rx = (t * 0.34 + i * 0.61) * (rng() < 0.5 ? 1 : -1);
+      const ry = t * 0.48 + i * 0.78;
+
+      const verts = [
+        { x: -size, y: -size, z: -size }, { x: size, y: -size, z: -size },
+        { x: size, y: size, z: -size }, { x: -size, y: size, z: -size },
+        { x: -size, y: -size, z: size }, { x: size, y: -size, z: size },
+        { x: size, y: size, z: size }, { x: -size, y: size, z: size }
+      ];
+
+      const projected = verts.map(v => {
+        let p = rotateX(v, rx);
+        p = rotateY(p, ry);
+        p.z += depth;
+        const s = perspective / Math.max(80, p.z + perspective * 0.35);
+        return { x: ox + p.x * s, y: oy + p.y * s, z: p.z, scale: s };
+      });
+
+      const lineCol = rngPick(colors);
+      offCtx.strokeStyle = lineCol;
+      offCtx.lineWidth = lw(0.65 + state.weight * 0.02);
+      offCtx.globalAlpha = Math.max(0.2, 0.76 - i * 0.05) * (1 - cFactor * 0.18);
+
+      edgeList.forEach(([a, b]) => {
+        offCtx.beginPath();
+        offCtx.moveTo(projected[a].x, projected[a].y);
+        offCtx.lineTo(projected[b].x, projected[b].y);
+        offCtx.stroke();
+      });
+
+      // Front-face tint helps sell the fake volume.
+      offCtx.fillStyle = lineCol;
+      offCtx.globalAlpha *= 0.14;
+      offCtx.beginPath();
+      offCtx.moveTo(projected[4].x, projected[4].y);
+      offCtx.lineTo(projected[5].x, projected[5].y);
+      offCtx.lineTo(projected[6].x, projected[6].y);
+      offCtx.lineTo(projected[7].x, projected[7].y);
+      offCtx.closePath();
+      offCtx.fill();
+
+      if (!isDetailPass && state.textAmount > 10 && i % 2 === 0) {
+        offCtx.globalAlpha = 0.62;
+        offCtx.fillStyle = lineCol;
+        offCtx.font = `${lf(8)}px monospace`;
+        offCtx.textAlign = 'left';
+        offCtx.fillText(`Z:${Math.round(depth)} U:${Math.round(projected[0].scale * 100)}`, projected[6].x + lw(4), projected[6].y - lw(4));
+      }
+
+      state.elementCount += 1;
+    }
+
+    if (!isDetailPass && state.complexity > 8) {
+      const gridStep = Math.max(28, Math.floor(Math.min(W, H) * 0.06));
+      offCtx.strokeStyle = getThin();
+      offCtx.lineWidth = lw(0.35);
+      offCtx.globalAlpha = 0.22;
+      for (let y = H * 0.5; y < H; y += gridStep) {
+        const perspectiveShift = (y - H * 0.5) * 0.35;
+        offCtx.beginPath();
+        offCtx.moveTo(W * 0.5 - perspectiveShift, y);
+        offCtx.lineTo(W * 0.5 + perspectiveShift, y);
+        offCtx.stroke();
+      }
+    }
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
   //  EVANGELION MODE — NERV / AT Field HUD
   // ─────────────────────────────────────────────────────────────────────────
   function drawEvangelion(t = 0, isDetailPass = false) {
@@ -3383,53 +4254,114 @@
     const acc = getAccent();
     const cFactor = state.chaos / 30.0;
     const thin = getThin();
+    const evaPurple = '#7a35ff';
+    const evaGreen = '#66ff33';
+    const evaOrange = '#ff9f0a';
+    const evaRed = '#ff3b30';
 
-    // 1. AT-Field Concentric Hexagons (Centered on Anchor 0)
+    const drawHexPath = (cx, cy, r, rot = 0) => {
+      offCtx.beginPath();
+      for (let k = 0; k < 6; k++) {
+        const a = rot + (Math.PI / 3) * k;
+        const x = cx + Math.cos(a) * r;
+        const y = cy + Math.sin(a) * r;
+        k === 0 ? offCtx.moveTo(x, y) : offCtx.lineTo(x, y);
+      }
+      offCtx.closePath();
+    };
+
+    // 1. AT-Field geometry core (sharp hex lattice + phase spokes)
+    if (!isDetailPass && state.complexity > 4) {
+      const cx0 = c.anchors[0].x;
+      const cy0 = c.anchors[0].y;
+      const minDim = Math.min(W, H);
+      const baseR = minDim * 0.09;
+      const layers = Math.min(10, 4 + Math.floor(state.complexity * 0.5));
+
+      for (let j = 0; j < layers; j++) {
+        const r = baseR + j * minDim * 0.028;
+        const pulse = 1 + Math.sin(t * 1.7 + j * 0.8) * 0.02;
+        const rot = t * 0.18 * (j % 2 === 0 ? 1 : -1) + j * 0.07;
+        const color = j % 3 === 0 ? evaPurple : (j % 2 === 0 ? evaOrange : evaRed);
+
+        offCtx.strokeStyle = color;
+        offCtx.lineWidth = lw(j % 2 === 0 ? 1.1 : 0.8);
+        offCtx.globalAlpha = Math.max(0.22, 0.72 - j * 0.07) * (1 - cFactor * 0.35);
+        drawHexPath(cx0, cy0, r * pulse, rot);
+        offCtx.stroke();
+
+        if (state.complexity > 8 && j % 2 === 0) {
+          offCtx.globalAlpha *= 0.55;
+          drawHexPath(cx0, cy0, r * 0.84 * pulse, -rot * 0.55);
+          offCtx.stroke();
+        }
+      }
+
+      // Phase spokes + lock marks
+      if (state.complexity > 6) {
+        const spokeLen = baseR + layers * minDim * 0.028;
+        offCtx.strokeStyle = evaGreen;
+        offCtx.lineWidth = lw(0.7);
+        offCtx.globalAlpha = 0.42 * (1 - cFactor * 0.3);
+        for (let s = 0; s < 6; s++) {
+          const a = t * 0.12 + s * (Math.PI / 3);
+          const x = cx0 + Math.cos(a) * spokeLen;
+          const y = cy0 + Math.sin(a) * spokeLen;
+          offCtx.beginPath();
+          offCtx.moveTo(cx0, cy0);
+          offCtx.lineTo(x, y);
+          offCtx.stroke();
+
+          offCtx.beginPath();
+          offCtx.arc(x, y, lw(2.2), 0, Math.PI * 2);
+          offCtx.stroke();
+        }
+      }
+
+      // Core fill plate
+      offCtx.globalAlpha = 0.24;
+      offCtx.fillStyle = '#8d4dff';
+      drawHexPath(cx0, cy0, baseR * 0.72, t * 0.24);
+      offCtx.fill();
+      offCtx.globalAlpha = 1.0;
+      state.elementCount += layers + 8;
+    }
+
+    // 2. Geofront tactical guides (cardinal rails + center cross)
     if (!isDetailPass && state.complexity > 5) {
       const cx0 = c.anchors[0].x;
       const cy0 = c.anchors[0].y;
-      const atRadius = Math.min(W, H) * 0.22;
-      const numHex = state.complexity > 10 ? 8 : 5;
-      
-      offCtx.strokeStyle = '#ff5500';
-      offCtx.lineWidth = lw(1.2);
-      
-      for (let j = 0; j < numHex; j++) {
-        const scaleHex = (j + 1) / numHex;
-        const r = atRadius * scaleHex;
-        // Pulse hex size with time
-        const rPulse = r * (1.0 + Math.sin(t * 1.5 + j * 0.8) * 0.03);
-        const angleOffset = t * 0.02 + j * 0.05;
-        
+      const rail = Math.min(W, H) * 0.32;
+
+      offCtx.strokeStyle = thin;
+      offCtx.lineWidth = lw(0.6);
+      offCtx.globalAlpha = 0.45 * (1 - cFactor * 0.25);
+
+      offCtx.beginPath();
+      offCtx.moveTo(cx0 - rail, cy0);
+      offCtx.lineTo(cx0 + rail, cy0);
+      offCtx.moveTo(cx0, cy0 - rail);
+      offCtx.lineTo(cx0, cy0 + rail);
+      offCtx.stroke();
+
+      const tickStep = rail / 4;
+      for (let i = 1; i <= 4; i++) {
+        const d = tickStep * i;
         offCtx.beginPath();
-        // Angular sweep with Gaussian modulation packet to simulate AT-Field phase shift
-        const numPts = 120;
-        const peakAngle = t * 0.45 + j * 0.6; // wave packet peak sweeps with time
-        const sigma = 0.45; // wave width
-        const amp = 0.08 * (1 + cFactor * 0.5); // wave intensity
-        const freq = 14; // wave frequency
-        for (let side = 0; side <= numPts; side++) {
-          const a = (side / numPts) * Math.PI * 2 + angleOffset;
-          // Gaussian packet envelope
-          const diff = Math.atan2(Math.sin(a - peakAngle), Math.cos(a - peakAngle));
-          const env = Math.exp(-0.5 * (diff / sigma) * (diff / sigma));
-          const rPulseMod = rPulse * (1 + amp * env * Math.sin(freq * a));
-          
-          const px = cx0 + rPulseMod * Math.cos(a) + (rng() - 0.5) * cFactor * 24;
-          const py = cy0 + rPulseMod * Math.sin(a) + (rng() - 0.5) * cFactor * 24;
-          side === 0 ? offCtx.moveTo(px, py) : offCtx.lineTo(px, py);
-        }
-        offCtx.closePath();
+        offCtx.moveTo(cx0 - d, cy0 - lw(3));
+        offCtx.lineTo(cx0 - d, cy0 + lw(3));
+        offCtx.moveTo(cx0 + d, cy0 - lw(3));
+        offCtx.lineTo(cx0 + d, cy0 + lw(3));
+        offCtx.moveTo(cx0 - lw(3), cy0 - d);
+        offCtx.lineTo(cx0 + lw(3), cy0 - d);
+        offCtx.moveTo(cx0 - lw(3), cy0 + d);
+        offCtx.lineTo(cx0 + lw(3), cy0 + d);
         offCtx.stroke();
-        
-        // Shimmer fill
-        offCtx.fillStyle = '#ff6c0008';
-        offCtx.fill();
       }
-      offCtx.globalAlpha = 1.0;
+      state.elementCount += 6;
     }
 
-    // 2. Cabling Conduits (System Connectivity)
+    // 3. Cabling Conduits (System Connectivity)
     // Connect support anchors (Anchor 1, 2) to focal (Anchor 0) with orange bus lines
     if (!isDetailPass && c.anchors.length > 1) {
       for (let a = 1; a < c.anchors.length; a++) {
@@ -3498,14 +4430,16 @@
       const py = pos.y - panelH / 2;
 
       // MAGI Vote status
-      let vote = 'APPROVED';
-      let col = '#00ff88'; // green
+      let vote = 'SYNC NOMINAL';
+      let col = evaPurple;
       if (state.chaos > 25 && rng() < cFactor * 0.6) {
-        vote = rngPick(['SYSTEM OVERFLOW', 'CRITICAL ERR', 'REJECTED', 'OVERLOAD']);
-        col = '#ff1100'; // red
+        vote = rngPick(['SYNC BREAK', 'CRITICAL ERR', 'AT-LEAK', 'OVERLOAD']);
+        col = evaRed;
       } else if (rng() < 0.2) {
-        vote = 'REVIEWING';
-        col = '#ff9100'; // orange
+        vote = rngPick(['REVIEWING', 'MAGI VOTE', 'PATTERN BLUE']);
+        col = evaOrange;
+      } else if (rng() < 0.25) {
+        col = evaGreen;
       }
 
       offCtx.save();
@@ -3581,95 +4515,243 @@
       }
       offCtx.restore();
 
-      // 4. Sync Rate Meter (Grouped right below panel)
+      // 4. Telemetry Rails (procedural bars, not fixed)
       if (state.complexity > 5 && !isDetailPass) {
-        const mw = panelW * 0.9;
-        const mh = lw(15);
-        const mx = pos.x - mw / 2;
-        const my = pos.y + panelH * 0.65;
-        
+        const rails = 2 + (m % 2); // 2 or 3 rails per MAGI panel
+        const baseRadius = Math.max(panelW, panelH) * 0.62;
+        const orbitPhase = anchor.angle + t * 0.25 + m * 0.8;
+
         let syncVal = 0.68 + Math.sin(t * 1.5 + m) * 0.15;
         if (state.chaos > 40) syncVal += (rng() - 0.5) * cFactor;
-        syncVal = Math.max(0.1, Math.min(1.8, syncVal));
-        
+        syncVal = Math.max(0.08, Math.min(1.9, syncVal));
         const isOverload = syncVal > 1.0;
-        const mCol = isOverload ? '#ff003c' : col;
+        const mCol = isOverload ? evaRed : col;
 
         offCtx.save();
-        offCtx.translate((rng() - 0.5) * cFactor * 12, (rng() - 0.5) * cFactor * 12);
-        
-        offCtx.strokeStyle = mCol;
-        offCtx.lineWidth = lw(0.8);
-        offCtx.globalAlpha = 0.85 * (1 - cFactor * 0.4);
-        offCtx.strokeRect(mx, my, mw, mh);
-        
-        offCtx.fillStyle = mCol;
-        offCtx.globalAlpha = isOverload ? 0.9 : 0.6;
-        offCtx.fillRect(mx + lw(1), my + lw(1), Math.max(0, Math.min(mw - lw(2), (mw - lw(2)) * syncVal)), mh - lw(2));
+        offCtx.translate((rng() - 0.5) * cFactor * 10, (rng() - 0.5) * cFactor * 10);
+
+        for (let rIdx = 0; rIdx < rails; rIdx++) {
+          const a = orbitPhase + rIdx * (Math.PI * 2 / rails);
+          const railX = pos.x + Math.cos(a) * baseRadius;
+          const railY = pos.y + Math.sin(a) * baseRadius;
+          const railLen = panelW * rngRange(0.45, 0.95);
+          const railThick = lw(rngRange(6, 11));
+          const chaosNorm = Math.min(1, state.chaos / 100);
+
+          // Align rail orientation to anchor direction plus quantized offsets
+          const dir = anchor.angle + rngPick([0, Math.PI / 6, -Math.PI / 6, Math.PI / 2]);
+          const fillLen = Math.max(lw(2), Math.min(railLen - lw(2), (railLen - lw(2)) * Math.abs(syncVal)));
+          const shapeRoll = rng();
+          const isCurvedRail = chaosNorm > 0.10 && shapeRoll < (0.12 + chaosNorm * 0.50);
+          const isBrokenRail = !isCurvedRail && chaosNorm > 0.20 && shapeRoll < (0.05 + chaosNorm * 0.70);
+
+          offCtx.save();
+          offCtx.translate(railX, railY);
+          offCtx.rotate(dir);
+
+          // Outer frame + interior fill: straight, curved or broken based on chaos
+          offCtx.strokeStyle = mCol;
+          offCtx.lineWidth = lw(0.75);
+          offCtx.globalAlpha = 0.78 * (1 - cFactor * 0.35);
+
+          if (isCurvedRail) {
+            const bulge = railThick * rngRange(0.6, 1.5) * (rng() < 0.5 ? -1 : 1) * (0.35 + chaosNorm * 0.9);
+
+            offCtx.beginPath();
+            offCtx.moveTo(-railLen / 2, -railThick / 2);
+            offCtx.quadraticCurveTo(0, -railThick / 2 + bulge, railLen / 2, -railThick / 2);
+            offCtx.lineTo(railLen / 2, railThick / 2);
+            offCtx.quadraticCurveTo(0, railThick / 2 + bulge, -railLen / 2, railThick / 2);
+            offCtx.closePath();
+            offCtx.stroke();
+
+            offCtx.strokeStyle = mCol;
+            offCtx.lineWidth = Math.max(lw(1.5), railThick - lw(2.2));
+            offCtx.globalAlpha = isOverload ? 0.88 : 0.6;
+            const fx1 = -railLen / 2 + lw(1.2);
+            const fx2 = Math.min(railLen / 2 - lw(1.2), -railLen / 2 + fillLen);
+            if (fx2 > fx1) {
+              const midX = (fx1 + fx2) * 0.5;
+              const curveLift = bulge * 0.72;
+              offCtx.beginPath();
+              offCtx.moveTo(fx1, 0);
+              offCtx.quadraticCurveTo(midX, curveLift, fx2, 0);
+              offCtx.stroke();
+            }
+          } else if (isBrokenRail) {
+            const kinks = 3 + (rIdx % 3);
+            const segGap = lw(1.2);
+            const kinkAmp = railThick * (0.2 + chaosNorm * 0.45);
+            const segLen = (railLen - segGap * (kinks - 1)) / kinks;
+
+            offCtx.fillStyle = mCol;
+            offCtx.globalAlpha = isOverload ? 0.88 : 0.6;
+            let consumed = 0;
+            for (let k = 0; k < kinks; k++) {
+              const sx = -railLen / 2 + k * (segLen + segGap);
+              const yOff = ((k % 2 === 0) ? -1 : 1) * kinkAmp;
+              offCtx.globalAlpha = 0.74 * (1 - cFactor * 0.35);
+              offCtx.strokeRect(sx, -railThick / 2 + yOff, segLen, railThick);
+
+              const available = Math.max(0, fillLen - consumed);
+              const fillW = Math.min(segLen - lw(1.4), available);
+              if (fillW > 0) {
+                offCtx.globalAlpha = isOverload ? 0.88 : 0.6;
+                offCtx.fillRect(sx + lw(0.7), -railThick / 2 + yOff + lw(1), fillW, railThick - lw(2));
+              }
+              consumed += segLen + segGap;
+            }
+          } else {
+            offCtx.strokeRect(-railLen / 2, -railThick / 2, railLen, railThick);
+
+            const segs = 3 + (rIdx % 3);
+            const segGap = lw(1.4);
+            const segW = (fillLen - segGap * (segs - 1)) / segs;
+            offCtx.fillStyle = mCol;
+            offCtx.globalAlpha = isOverload ? 0.9 : 0.62;
+            for (let s = 0; s < segs; s++) {
+              const sx = -railLen / 2 + s * (segW + segGap) + lw(1);
+              if (sx > -railLen / 2 + fillLen) break;
+              const clampedW = Math.min(segW, (-railLen / 2 + fillLen) - sx);
+              if (clampedW > 0) offCtx.fillRect(sx, -railThick / 2 + lw(1), clampedW, railThick - lw(2));
+            }
+          }
+
+          // Rail end-caps
+          offCtx.globalAlpha = 0.85;
+          offCtx.beginPath();
+          offCtx.moveTo(-railLen / 2, 0);
+          offCtx.lineTo(-railLen / 2 - lw(4), 0);
+          offCtx.moveTo(railLen / 2, 0);
+          offCtx.lineTo(railLen / 2 + lw(4), 0);
+          offCtx.stroke();
+
+          offCtx.restore();
+        }
 
         if (state.textAmount > 0) {
           offCtx.fillStyle = mCol;
-          offCtx.globalAlpha = 1.0;
+          offCtx.globalAlpha = 0.95;
           offCtx.font = `${lf(Math.max(6, 8 * scale))}px monospace`;
           offCtx.textAlign = 'left';
           const rateText = isOverload ? `SYNC OVERFLOW: ${Math.floor(syncVal * 100)}%` : `SYNC RATE: ${Math.floor(syncVal * 100)}%`;
-          offCtx.fillText(rateText, mx, my + mh + lf(9));
+          offCtx.fillText(rateText, pos.x - panelW * 0.45, pos.y + panelH * 0.9);
         }
+
         offCtx.restore();
       }
 
       state.elementCount += 4;
     }
 
-    // 5. NERV Warning Stripes (diagonal hazard) formatted as clean screen frame
+    // 5. NERV Warning Stripes (DANGER rails with variable layout)
     if (!isDetailPass && state.complexity > 7) {
       offCtx.save();
       const margin = lw(20);
-      const sh = lw(14); // stripe frame height
-      const stripeW = lw(12);
+      const stripeW = lw(14);
+      const bandThin = lw(16);
+      const bandThick = lw(24);
+      const dangerPulse = 0.74 + 0.22 * Math.abs(Math.sin(t * 1.9));
       offCtx.strokeStyle = acc;
       offCtx.lineWidth = lw(1);
-      
-      const drawStripeFrame = (fy) => {
+
+      const seedN = Math.abs(Math.sin(state.seed * 0.000017 + 1.7));
+      const chaosShift = state.chaos > 70 ? (Math.floor(t * 0.35) % 2) : 0;
+      const layoutVariant = (Math.floor(seedN * 7) + chaosShift) % 4;
+
+      const drawDangerBand = (bx, by, bw, bh, orientation = 'horizontal', dir = 1) => {
         offCtx.save();
         offCtx.beginPath();
-        offCtx.rect(margin, fy, W - margin * 2, sh);
+        offCtx.rect(bx, by, bw, bh);
         offCtx.clip();
-        
-        // draw repeating stripes
-        for (let sx = margin - sh; sx < W - margin + sh; sx += stripeW * 2) {
-          offCtx.fillStyle = rngPick([acc, '#000000', '#1a0000']);
-          offCtx.globalAlpha = 0.75 * (1 - cFactor * 0.3);
-          offCtx.beginPath();
-          offCtx.moveTo(sx, fy);
-          offCtx.lineTo(sx + stripeW, fy);
-          offCtx.lineTo(sx + stripeW + sh, fy + sh);
-          offCtx.lineTo(sx + sh, fy + sh);
-          offCtx.closePath();
-          offCtx.fill();
+
+        if (orientation === 'horizontal') {
+          const slant = bh * 0.9 * dir;
+          for (let sx = bx - bh; sx < bx + bw + bh; sx += stripeW * 2) {
+            offCtx.fillStyle = rngPick([evaRed, evaOrange, '#1a0000']);
+            offCtx.globalAlpha = dangerPulse * (1 - cFactor * 0.12);
+            offCtx.beginPath();
+            offCtx.moveTo(sx, by);
+            offCtx.lineTo(sx + stripeW, by);
+            offCtx.lineTo(sx + stripeW + slant, by + bh);
+            offCtx.lineTo(sx + slant, by + bh);
+            offCtx.closePath();
+            offCtx.fill();
+          }
+        } else {
+          const slant = bw * 0.35 * dir;
+          for (let sy = by - bw; sy < by + bh + bw; sy += stripeW * 2) {
+            offCtx.fillStyle = rngPick([evaRed, evaOrange, '#1a0000']);
+            offCtx.globalAlpha = dangerPulse * (1 - cFactor * 0.12);
+            offCtx.beginPath();
+            offCtx.moveTo(bx, sy);
+            offCtx.lineTo(bx + bw, sy + slant);
+            offCtx.lineTo(bx + bw, sy + stripeW + slant);
+            offCtx.lineTo(bx, sy + stripeW);
+            offCtx.closePath();
+            offCtx.fill();
+          }
         }
+
         offCtx.restore();
-        
-        // draw border line
-        offCtx.globalAlpha = 0.9 * (1 - cFactor * 0.4);
-        offCtx.strokeRect(margin, fy, W - margin * 2, sh);
-        
-        // draw warning text overlay
-        if (state.complexity > 9 && state.textAmount > 0) {
+
+        offCtx.globalAlpha = 0.96 * (1 - cFactor * 0.25);
+        offCtx.strokeRect(bx, by, bw, bh);
+
+        // Extra alarm edge to avoid bars disappearing into dark backgrounds.
+        offCtx.globalAlpha = 0.55;
+        offCtx.strokeStyle = evaRed;
+        offCtx.beginPath();
+        offCtx.moveTo(bx, by + bh);
+        offCtx.lineTo(bx + bw, by + bh);
+        offCtx.stroke();
+        offCtx.strokeStyle = acc;
+
+        if (state.complexity > 8) {
           offCtx.fillStyle = '#ffffff';
           offCtx.font = `bold ${lf(8)}px monospace`;
-          offCtx.textAlign = 'center';
-          offCtx.fillText('EMERGENCY // KEEP OUT // EMERGENCY // KEEP OUT', W / 2, fy + sh * 0.7);
+          offCtx.globalAlpha = state.textAmount > 0 ? 0.92 : 0.72;
+          if (orientation === 'horizontal') {
+            offCtx.textAlign = 'center';
+            const hzText = state.textAmount > 0 ? 'DANGER // NO ENTRY // DANGER // NO ENTRY' : 'DANGER // NO ENTRY';
+            offCtx.fillText(hzText, bx + bw * 0.5, by + bh * 0.72);
+          } else {
+            offCtx.save();
+            offCtx.translate(bx + bw * 0.5, by + bh * 0.5);
+            offCtx.rotate(-Math.PI / 2);
+            offCtx.textAlign = 'center';
+            const vtText = state.textAmount > 0 ? 'DANGER // NO ENTRY // DANGER' : 'DANGER';
+            offCtx.fillText(vtText, 0, lf(3));
+            offCtx.restore();
+          }
         }
       };
 
-      // Top warning frame
-      drawStripeFrame(margin + lw(10));
-      // Bottom warning frame
-      drawStripeFrame(H - margin - sh - lw(10));
+      let dangerBands = 0;
+      if (layoutVariant === 0) {
+        drawDangerBand(margin, margin + lw(10), W - margin * 2, bandThin, 'horizontal', 1);
+        drawDangerBand(margin, H - margin - bandThin - lw(10), W - margin * 2, bandThin, 'horizontal', -1);
+        dangerBands = 2;
+      } else if (layoutVariant === 1) {
+        drawDangerBand(margin + lw(8), margin + lw(24), bandThin, H - (margin + lw(24)) * 2, 'vertical', 1);
+        drawDangerBand(W - margin - bandThin - lw(8), margin + lw(24), bandThin, H - (margin + lw(24)) * 2, 'vertical', -1);
+        dangerBands = 2;
+      } else if (layoutVariant === 2) {
+        drawDangerBand(margin + lw(6), margin + lw(10), W - margin * 2 - lw(12), bandThin, 'horizontal', -1);
+        drawDangerBand(W - margin - bandThin, margin + lw(34), bandThin, H - margin * 2 - lw(68), 'vertical', 1);
+        dangerBands = 2;
+      } else {
+        const y0 = H * 0.16;
+        const y1 = H * 0.5 - bandThin * 0.5;
+        const y2 = H * 0.84 - bandThin;
+        drawDangerBand(margin + lw(10), y0, W - margin * 2 - lw(20), bandThin, 'horizontal', 1);
+        drawDangerBand(margin + lw(28), y1, W - margin * 2 - lw(56), bandThick, 'horizontal', -1);
+        drawDangerBand(margin + lw(10), y2, W - margin * 2 - lw(20), bandThin, 'horizontal', 1);
+        dangerBands = 3;
+      }
 
       offCtx.restore();
-      state.elementCount += 2;
+      state.elementCount += dangerBands;
     }
 
     // 6. Aligned Warning / Countdown text columns at side margins
@@ -3683,7 +4765,11 @@
         'MAGI OVERRIDE: GRANTED',
         'PATTERN BLUE CONFIRMED',
         'SYNCHRONIZATION INITIATED',
-        'A.T. FIELD: EXPANDING'
+        'A.T. FIELD: EXPANDING',
+        'LCL PRESSURE: STABLE',
+        'ENTRY PLUG LOCK: GREEN',
+        'GEOFRONT SEAL: CLOSED',
+        'TARGET CORE: TRACKING'
       ];
       
       const margin = lw(28);
@@ -3703,7 +4789,7 @@
 
       // Right side warnings
       offCtx.textAlign = 'right';
-      for (let i = 4; i < Math.min(8, 4 + state.textAmount); i++) {
+      for (let i = 4; i < Math.min(evaLines.length, 4 + state.textAmount); i++) {
         let txt = evaLines[i];
         if (rng() < cFactor * 0.4) txt = '!! ' + txt + ' !!';
         offCtx.fillText(txt, W - margin, startY + (i - 4) * lw(12));
@@ -3773,6 +4859,7 @@
         case 'flow':        drawFlow(time, isDetailPass); break;
         case 'sacred':      drawSacred(time, isDetailPass); break;
         case 'glyph':       drawGlyph(time, isDetailPass); break;
+        case 'volumetric':  drawVolumetric(time, isDetailPass); break;
         case 'gundam':      drawGundam(time, isDetailPass); break;
         case 'evangelion':  drawEvangelion(time, isDetailPass); break;
       }
@@ -4083,6 +5170,8 @@
         prevFrameEl.setAttribute('opacity', '0');
         if (prevFrameEl.innerHTML !== '') prevFrameEl.innerHTML = '';
       }
+
+      syncLiveOutputFrame();
     }
 
     // Info bar
@@ -4146,11 +5235,12 @@
       img.src = item.dataUrl; img.className = 'gallery-thumb' + (i === 0 ? ' active' : '');
       img.title = `${item.mode.toUpperCase()} · ${item.palette.toUpperCase()} · SEMILLA ${item.seed}`;
       img.addEventListener('click', () => {
-        state.seed = item.seed; state.mode = item.mode; state.palette = item.palette;
+        setSeedValue(item.seed, { syncInput: true, syncBase: true });
+        state.mode = item.mode;
+        state.palette = item.palette;
         const PALETTES = ['mono', 'cyber', 'neon', 'blood', 'ice', 'gold', 'vaporwave', 'matrix', 'rust', 'gundam', 'evangelion'];
         animBases.paletteIdx = PALETTES.indexOf(state.palette);
         if (animBases.paletteIdx === -1) animBases.paletteIdx = 0;
-        document.getElementById('seed-input').value = state.seed;
         const modeSelect = document.getElementById('mode-select');
         if (modeSelect) modeSelect.value = state.mode;
         document.querySelectorAll('.palette-btn').forEach(b => b.classList.toggle('active', b.dataset.palette === state.palette));
@@ -4175,6 +5265,24 @@
   let prevSvgContent = null;
   let fadeAlpha = 0, fadeStartTime = 0, fadeDurationMs = 500;
 
+  function normalizeSeed(seed) {
+    const n = Number(seed);
+    if (!Number.isFinite(n)) return 0;
+    return Math.floor(Math.abs(n)) % 99999999;
+  }
+
+  function setSeedValue(nextSeed, options = {}) {
+    const { syncInput = true, syncBase = true } = options;
+    const normalized = normalizeSeed(nextSeed);
+    state.seed = normalized;
+    if (syncBase) animBases.seed = normalized;
+    if (syncInput) {
+      const seedInput = document.getElementById('seed-input');
+      if (seedInput) seedInput.value = String(normalized);
+    }
+    return normalized;
+  }
+
   // Fade is always on during animation — slider controls duration
   // fadeDuration: 1 = fast (200ms), 10 = slow (2000ms)
   function triggerFade(newSeed) {
@@ -4188,7 +5296,7 @@
         overlay: overlay ? overlay.innerHTML : ''
       };
     }
-    state.seed = newSeed % 99999999;
+    setSeedValue(newSeed, { syncInput: true, syncBase: true });
     draw(state.animTime);
     fadeAlpha = 1;
     fadeStartTime = performance.now();
@@ -4217,8 +5325,148 @@
     startTime: 0,
     duration: 10,
     mimeType: 'video/webm',
-    extension: 'webm'
+    extension: 'webm',
+    includeAudio: false,
+    audioDestNode: null,
+    audioCompressor: null,
+    audioNormGain: null
   };
+
+  const liveOutputState = {
+    popup: null,
+    closeWatch: null,
+    lastSvg: '',
+    lastViewBox: '',
+    lastSyncAt: 0
+  };
+
+  function updateLiveOutputButton() {
+    const btn = document.getElementById('btn-live-output');
+    if (!btn) return;
+    const isOpen = !!(liveOutputState.popup && !liveOutputState.popup.closed);
+    btn.classList.toggle('active', isOpen);
+    btn.innerHTML = isOpen ? '<span>■</span>LIVE ON' : '<span>▣</span>LIVE';
+    btn.title = isOpen ? 'Cerrar salida LIVE' : 'Abrir salida LIVE en otra pantalla';
+  }
+
+  function teardownLiveOutput(closePopup = false) {
+    if (liveOutputState.closeWatch) {
+      clearInterval(liveOutputState.closeWatch);
+      liveOutputState.closeWatch = null;
+    }
+    if (closePopup && liveOutputState.popup && !liveOutputState.popup.closed) {
+      try { liveOutputState.popup.close(); } catch (e) {}
+    }
+    liveOutputState.popup = null;
+    liveOutputState.lastSvg = '';
+    liveOutputState.lastViewBox = '';
+    liveOutputState.lastSyncAt = 0;
+    updateLiveOutputButton();
+  }
+
+  async function getLiveOutputWindowFeatures() {
+    let left = window.screenX || 0;
+    let top = window.screenY || 0;
+    let width = window.screen.availWidth || 1280;
+    let height = window.screen.availHeight || 720;
+
+    if (typeof window.getScreenDetails === 'function') {
+      try {
+        const details = await window.getScreenDetails();
+        const targetScreen = details.screens.find(scr => scr !== details.currentScreen) || details.screens[0];
+        if (targetScreen) {
+          left = targetScreen.availLeft ?? targetScreen.left ?? left;
+          top = targetScreen.availTop ?? targetScreen.top ?? top;
+          width = targetScreen.availWidth ?? targetScreen.width ?? width;
+          height = targetScreen.availHeight ?? targetScreen.height ?? height;
+        }
+      } catch (e) {
+        // Fall back to the current screen when window-placement permission isn't available.
+      }
+    }
+
+    return `popup=yes,left=${Math.round(left)},top=${Math.round(top)},width=${Math.round(width)},height=${Math.round(height)},menubar=no,toolbar=no,location=no,status=no,resizable=yes,scrollbars=no`;
+  }
+
+  function syncLiveOutputFrame(force = false) {
+    const popup = liveOutputState.popup;
+    if (!popup || popup.closed) {
+      teardownLiveOutput(false);
+      return false;
+    }
+
+    const now = performance.now();
+    const isFullscreen = !!popup.document.fullscreenElement;
+    const minInterval = isFullscreen ? 75 : 16;
+    if (!force && now - liveOutputState.lastSyncAt < minInterval) {
+      return true;
+    }
+
+    const liveStage = popup.document.getElementById('live-stage');
+    if (!liveStage) return false;
+
+    const svgEl = document.getElementById('main-svg');
+    if (!svgEl) return false;
+
+    const viewBox = svgEl.getAttribute('viewBox') || '';
+    const svgMarkup = svgEl.innerHTML;
+    if (force || svgMarkup !== liveOutputState.lastSvg || viewBox !== liveOutputState.lastViewBox) {
+      liveStage.innerHTML = `<svg viewBox="${viewBox}" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMid meet">${svgMarkup}</svg>`;
+      const mirroredSvg = liveStage.firstElementChild;
+      if (mirroredSvg) {
+        mirroredSvg.style.width = '100vw';
+        mirroredSvg.style.height = '100vh';
+        mirroredSvg.style.display = 'block';
+        mirroredSvg.style.background = '#000';
+      }
+      liveOutputState.lastSvg = svgMarkup;
+      liveOutputState.lastViewBox = viewBox;
+      liveOutputState.lastSyncAt = now;
+    }
+
+    const titleEl = popup.document.getElementById('live-title');
+    if (titleEl) titleEl.textContent = `HEARTFLASH LIVE :: ${state.seed}`;
+
+    updateLiveOutputButton();
+    document.getElementById('footer-info').textContent = 'LIVE::SALIDA EXTERNA ACTIVA';
+    return true;
+  }
+
+  async function toggleLiveOutput() {
+    if (liveOutputState.popup && !liveOutputState.popup.closed) {
+      teardownLiveOutput(true);
+      document.getElementById('footer-info').textContent = 'LIVE::SALIDA CERRADA';
+      return;
+    }
+
+    const features = await getLiveOutputWindowFeatures();
+    const popup = window.open('live-view.html', 'heartflash-live', features);
+    if (!popup) {
+      document.getElementById('footer-info').textContent = 'LIVE::POPUP BLOQUEADO';
+      return;
+    }
+
+    liveOutputState.popup = popup;
+    updateLiveOutputButton();
+
+    const tryAttach = () => {
+      if (syncLiveOutputFrame(true)) return;
+      setTimeout(tryAttach, 120);
+    };
+
+    if (popup.document && popup.document.readyState === 'complete') {
+      tryAttach();
+    } else {
+      popup.addEventListener('load', tryAttach, { once: true });
+    }
+
+    if (liveOutputState.closeWatch) clearInterval(liveOutputState.closeWatch);
+    liveOutputState.closeWatch = setInterval(() => {
+      if (!liveOutputState.popup || liveOutputState.popup.closed) {
+        teardownLiveOutput(false);
+      }
+    }, 1000);
+  }
 
   function captureRecordingFrame() {
     if (!recordingState.isRecording || !recordingState.ctx) return;
@@ -4262,9 +5510,10 @@
     const durSelect = document.getElementById('record-duration-select');
     recordingState.duration = parseInt(durSelect ? durSelect.value : '10') || 10;
 
-    // Force strictly 1080p resolution (1920x1080)
-    let recW = 1920;
-    let recH = 1080;
+    // Resolution from select
+    const resSelect = document.getElementById('record-resolution-select');
+    const resMap = { '720': [1280, 720], '1080': [1920, 1080], '2k': [2560, 1440], '4k': [3840, 2160] };
+    const [recW, recH] = resMap[resSelect ? resSelect.value : '1080'] || [1920, 1080];
 
     if (!recordingState.canvas) {
       recordingState.canvas = document.createElement('canvas');
@@ -4274,6 +5523,52 @@
     recordingState.ctx = recordingState.canvas.getContext('2d');
 
     const stream = recordingState.canvas.captureStream(30); // 30 FPS
+    recordingState.includeAudio = false;
+    recordingState.audioDestNode = null;
+    recordingState.audioCompressor = null;
+    recordingState.audioNormGain = null;
+
+    // Add normalized audio track only when AUDIO RX is explicitly ON.
+    const hasAudioRxOn = !!(state.audioRx.enabled && state.audioRx.ready &&
+      audioRxRuntime.ctx && audioRxRuntime.sourceNode);
+    if (hasAudioRxOn) {
+      try {
+        const ctx = audioRxRuntime.ctx;
+
+        // Dynamics compressor: gain-rides the signal so quiet audio comes up
+        // and peaks never clip
+        const comp = ctx.createDynamicsCompressor();
+        comp.threshold.value = -18;  // dB — start compressing here
+        comp.knee.value       = 20;  // dB — soft knee
+        comp.ratio.value      = 12;  // 12:1 — strong normalization
+        comp.attack.value     = 0.003; // 3 ms
+        comp.release.value    = 0.25;  // 250 ms
+
+        // Makeup gain after compression
+        const gain = ctx.createGain();
+        gain.gain.value = 2.0;
+
+        recordingState.audioDestNode    = ctx.createMediaStreamDestination();
+        recordingState.audioCompressor  = comp;
+        recordingState.audioNormGain    = gain;
+
+        audioRxRuntime.sourceNode.connect(comp);
+        comp.connect(gain);
+        gain.connect(recordingState.audioDestNode);
+
+        recordingState.audioDestNode.stream.getAudioTracks().forEach(t => stream.addTrack(t));
+        recordingState.includeAudio = true;
+      } catch(e) {
+        console.warn('No se pudo agregar audio a la grabación:', e);
+        recordingState.audioDestNode   = null;
+        recordingState.audioCompressor = null;
+        recordingState.audioNormGain   = null;
+        recordingState.includeAudio    = false;
+      }
+    } else {
+      // Defensive: make sure the recording stream remains silent when AUDIO RX is OFF.
+      stream.getAudioTracks().forEach(t => stream.removeTrack(t));
+    }
 
     const candidates = [
       { mime: 'video/x-matroska;codecs=avc1', ext: 'mkv' },
@@ -4301,7 +5596,8 @@
     // Force high bitrate (20 Mbps) for high quality recording
     const options = { 
       mimeType: recordingState.mimeType,
-      videoBitsPerSecond: 20000000
+      videoBitsPerSecond: 20000000,
+      ...(recordingState.includeAudio ? { audioBitsPerSecond: 192000 } : {})
     };
 
     recordingState.recordedBlobs = [];
@@ -4326,6 +5622,16 @@
     };
 
     recordingState.recorder.onstop = () => {
+      // Disconnect audio processing chain
+      if (recordingState.includeAudio && recordingState.audioDestNode) {
+        try { audioRxRuntime.sourceNode?.disconnect(recordingState.audioCompressor); } catch(e) {}
+        try { recordingState.audioCompressor?.disconnect(); } catch(e) {}
+        try { recordingState.audioNormGain?.disconnect(); } catch(e) {}
+      }
+      recordingState.audioDestNode   = null;
+      recordingState.audioCompressor = null;
+      recordingState.audioNormGain   = null;
+      recordingState.includeAudio    = false;
       const blob = new Blob(recordingState.recordedBlobs, { type: recordingState.mimeType });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -4341,6 +5647,8 @@
       recordingState.isRecording = false;
 
       const btn = document.getElementById('btn-record-video');
+      const stopBtn = document.getElementById('btn-stop-recording');
+      if (stopBtn) stopBtn.style.display = 'none';
       if (btn) {
         btn.classList.remove('recording');
         btn.innerHTML = '<span>●</span> GRABAR VIDEO';
@@ -4359,11 +5667,16 @@
     recordingState.recorder.start();
 
     const btn = document.getElementById('btn-record-video');
+    const stopBtn = document.getElementById('btn-stop-recording');
     if (btn) {
       btn.classList.add('recording');
       btn.style.borderColor = '';
       btn.style.color = '';
     }
+    if (stopBtn) stopBtn.style.display = '';
+    document.getElementById('footer-info').textContent = recordingState.includeAudio
+      ? 'GRABACIÓN::VIDEO + AUDIO RX'
+      : 'GRABACIÓN::VIDEO SIN AUDIO (AUDIO RX OFF)';
 
     const updateUI = () => {
       if (!recordingState.isRecording) return;
@@ -4439,116 +5752,143 @@
     fpsEl.dataset.passes = drawPerf.maxPasses;
     fpsEl.dataset.elBudget = drawPerf.elementBudget;
     state.lastFrameTime = timestamp;
-    // Scale animTime increment by speed (default base is 15) with LFO modulation
-    const lfo = getWaveValue(timestamp / 1000, 2.0, 0, state.animSpeedModWave || 'sine');
-    const modulatedSpeed = Math.max(0, state.animSpeed + state.animSpeedMod * lfo);
-    state.currentAnimSpeed = modulatedSpeed;
-    state.animTime += 0.016 * (modulatedSpeed / 15);
+    const baseLfoRates = state.lfos.map(lfo => Math.max(1, Math.min(160, lfo.rate)));
+    const preLfoVals = baseLfoRates.map((rate, i) =>
+      getWaveValue(state.animTime, rate / 15, i * Math.PI * 0.666, state.lfos[i].wave)
+    );
+    const preLowDrive = Math.max(0, Math.min(1, state.audioRx.lowLevel)) * (state.audioRx.lowAmount / 100);
+    const preMidDrive = Math.max(0, Math.min(1, state.audioRx.midLevel)) * (state.audioRx.midAmount / 100);
+    const preHighDrive = Math.max(0, Math.min(1, state.audioRx.highLevel)) * (state.audioRx.highAmount / 100);
+    const preBandVals = state.audioRx.enabled && state.audioRx.ready ? [preLowDrive, preMidDrive, preHighDrive] : [0, 0, 0];
+    const preSourceVals = [...preLfoVals, ...preBandVals];
 
-    // Smoothly animate parameters selected by the user
-    const speedFactor = 0.6; // Constant because animTime itself is now scaled by speed
-    const noiseFactor = state.animNoise / 100;
+    const LFO_RATE_DEST_KEYS = ['lfo1Rate', 'lfo2Rate', 'lfo3Rate'];
+    const effectiveRates = baseLfoRates.map((baseRate, targetIdx) => {
+      const depths = state.patches[LFO_RATE_DEST_KEYS[targetIdx]];
+      if (!depths || depths.every(v => v === null)) return baseRate;
+      const modSum = depths.reduce((sum, depth, srcIdx) =>
+        depth !== null ? sum + (preSourceVals[srcIdx] || 0) * (depth / 100) : sum, 0);
+      return Math.max(1, Math.min(160, baseRate + modSum * 45));
+    });
 
-    // Helper for chaotic high-frequency noise & glitchy jitter
-    const getNoise = (offset) => {
-      if (noiseFactor === 0) return 0;
-      const smoothNoise = Math.sin(state.animTime * 6.7 + offset) * 0.5 +
-                          Math.cos(state.animTime * 14.3 - offset * 1.5) * 0.3 +
-                          Math.sin(state.animTime * 31.1 + offset * 2.2) * 0.2;
-      const jitter = (Math.random() - 0.5) * 0.8;
-      return (smoothNoise * 0.65 + jitter * 0.35) * noiseFactor;
-    };
+    state.liveLfoRates = effectiveRates;
+    const avgLfoRate = (effectiveRates[0] + effectiveRates[1] + effectiveRates[2]) / 3;
+    state.currentAnimSpeed = avgLfoRate;
+    const speedBucket = Math.round(avgLfoRate * 4) / 4;
+    if (state.lfoUiSpeedBucket !== speedBucket) {
+      state.lfoUiSpeedBucket = speedBucket;
+      [0, 1, 2].forEach(updateLfoJackStyle);
+    }
+    state.animTime += 0.016 * (avgLfoRate / 15);
+    sampleAudioReactiveLevel();
 
-    if (state.animDetail) {
-      const factor = state.animAmountDetail / 100;
-      const totalOffset = getWaveValue(state.animTime, speedFactor, 0.0, state.animWave) + getNoise(0.0);
-      state.detail = Math.round(Math.max(0, Math.min(100, animBases.detail + 50 * factor * totalOffset)));
-      document.getElementById('detail-val').textContent = state.detail;
+    // Smooth modulation with deterministic LFOs (no animation chaos jitter)
+
+    // ── Eurorack LFO modulation ──────────────────────────────────────────
+    const lfoVals = state.lfos.map((lfo, i) =>
+      getWaveValue(state.animTime, getEffectiveLfoRate(lfo.rate, i) / 15, i * Math.PI * 0.666, lfo.wave)
+    );
+    const lowDrive = Math.max(0, Math.min(1, state.audioRx.lowLevel)) * (state.audioRx.lowAmount / 100);
+    const midDrive = Math.max(0, Math.min(1, state.audioRx.midLevel)) * (state.audioRx.midAmount / 100);
+    const highDrive = Math.max(0, Math.min(1, state.audioRx.highLevel)) * (state.audioRx.highAmount / 100);
+    const bandVals = state.audioRx.enabled && state.audioRx.ready ? [lowDrive, midDrive, highDrive] : [0, 0, 0];
+    const sourceVals = [...lfoVals, ...bandVals];
+
+    function getDestMod(destKey) {
+      const blockKey = getDestBlockKey(destKey);
+      return state.patches[destKey].reduce((sum, depth, i) =>
+        depth !== null ? sum + (sourceVals[i] || 0) * (depth / 100) : sum, 0);
+    }
+
+    // Continuous destinations
+    const CONT_DESTS = [
+      { key: 'detail',        stateKey: 'detail',          base: 'detail',          range: 50, min: 0, max: 100, uiId: 'detail-val' },
+      { key: 'weight',        stateKey: 'weight',           base: 'weight',          range: 50, min: 1, max: 100, uiId: 'weight-val' },
+      { key: 'chaos',         stateKey: 'chaos',            base: 'chaos',           range: 50, min: 1, max: 100, uiId: 'chaos-val' },
+      { key: 'text',          stateKey: 'textAmount',       base: 'textAmount',      range: 50, min: 0, max: 100, uiId: 'text-val' },
+      { key: 'customDensity', stateKey: 'customTextAmount', base: 'customTextAmount', range: 50, min: 0, max: 100, uiId: 'custom-text-density-val' },
+      { key: 'customSize',    stateKey: 'customTextSize',   base: 'customTextSize',   range: 73, min: 4, max: 150, uiId: 'custom-text-size-val' },
+    ];
+    for (const d of CONT_DESTS) {
+      if (state.patches[d.key].every(v => v === null)) continue;
+      const mod = getDestMod(d.key);
+      const nextVal = Math.round(Math.max(d.min, Math.min(d.max, animBases[d.base] + d.range * mod)));
+      state[d.stateKey] = nextVal;
+      document.getElementById(d.uiId).textContent = nextVal;
+    }
+    if (state.patches.detail.some(v => v !== null)) {
       state.complexity = Math.round(state.detail * 40 / 100);
-      state.density = Math.round(state.detail * 15 / 100);
+      state.density    = Math.round(state.detail * 15 / 100);
     }
-    if (state.animWeight) {
-      const factor = state.animAmountWeight / 100;
-      const totalOffset = getWaveValue(state.animTime, speedFactor, Math.PI * 0.6, state.animWave) + getNoise(2.4);
-      state.weight = Math.round(Math.max(1, Math.min(100, animBases.weight + 50 * factor * totalOffset)));
-      document.getElementById('weight-val').textContent = state.weight;
-    }
-    if (state.animChaos) {
-      const factor = state.animAmountChaos / 100;
-      const totalOffset = getWaveValue(state.animTime, speedFactor, Math.PI * 0.9, state.animWave) + getNoise(3.6);
-      state.chaos = Math.round(Math.max(1, Math.min(100, animBases.chaos + 50 * factor * totalOffset)));
-      document.getElementById('chaos-val').textContent = state.chaos;
-    }
-    if (state.animText) {
-      const factor = state.animAmountText / 100;
-      const totalOffset = getWaveValue(state.animTime, speedFactor, Math.PI * 1.2, state.animWave) + getNoise(4.8);
-      state.textAmount = Math.round(Math.max(0, Math.min(100, animBases.textAmount + 50 * factor * totalOffset)));
-      document.getElementById('text-val').textContent = state.textAmount;
-    }
-    if (state.animCustomDensity) {
-      const factor = state.animAmountCustomDensity / 100;
-      const totalOffset = getWaveValue(state.animTime, speedFactor, Math.PI * 1.5, state.animWave) + getNoise(6.0);
-      state.customTextAmount = Math.round(Math.max(0, Math.min(100, animBases.customTextAmount + 50 * factor * totalOffset)));
-      document.getElementById('custom-text-density-val').textContent = state.customTextAmount;
-    }
-    if (state.animCustomSize) {
-      const factor = state.animAmountCustomSize / 100;
-      const totalOffset = getWaveValue(state.animTime, speedFactor, Math.PI * 1.8, state.animWave) + getNoise(7.2);
-      state.customTextSize = Math.round(Math.max(4, Math.min(150, animBases.customTextSize + 73 * factor * totalOffset)));
-      document.getElementById('custom-text-size-val').textContent = state.customTextSize;
-    }
-    if (state.animEffects) {
-      const factor = state.animAmountEffects / 100;
-      const totalOffset = getWaveValue(state.animTime, speedFactor, Math.PI * 2.1, state.animWave) + getNoise(8.4);
-      state.effectsIntensity = Math.max(0, Math.min(2.0, 1.0 + 1.0 * factor * totalOffset));
+    if (state.patches.effects.some(v => v !== null)) {
+      state.effectsIntensity = Math.max(0, Math.min(2.0, 1.0 + getDestMod('effects')));
     } else {
       state.effectsIntensity = 1.0;
+    }
+
+    if (state.audioRx.enabled && state.audioRx.ready) {
+      const audioMod = (lowDrive + midDrive + highDrive) / 3;
+      if (audioMod > 0.001) {
+        state.detail = Math.max(0, Math.min(100, state.detail + Math.round(midDrive * 10 + highDrive * 12)));
+        state.chaos = Math.max(0, Math.min(100, state.chaos + Math.round(midDrive * 9 + highDrive * 18)));
+        state.weight = Math.max(0, Math.min(100, state.weight + Math.round(lowDrive * 16 + midDrive * 5)));
+        state.effectsIntensity = Math.max(0, Math.min(2.0, state.effectsIntensity + lowDrive * 0.18 + midDrive * 0.22 + highDrive * 0.32));
+        state.complexity = Math.round(state.detail * 40 / 100);
+        state.density = Math.round(state.detail * 15 / 100);
+        document.getElementById('detail-val').textContent = state.detail;
+        document.getElementById('chaos-val').textContent = state.chaos;
+        document.getElementById('weight-val').textContent = state.weight;
+      }
     }
 
     const t01 = (state.currentAnimSpeed - 1) / 33;
     let intervalMs = Math.round(1000 * Math.pow(0.1, t01));
 
-    if (state.animNoise > 0) {
-      const intervalNoise = Math.sin(state.animTime * 4.1) * 0.6 + Math.cos(state.animTime * 9.7) * 0.4;
-      intervalMs = Math.round(intervalMs * (1 + 0.7 * noiseFactor * intervalNoise));
-    }
-
-    const needsTimedChange = state.animSeed || state.animPalette || state.animBg || state.animMode;
+    const needsTimedChange = ['seed','palette','bg','mode'].some(k => state.patches[k].some(v => v !== null));
     if (needsTimedChange && (timestamp - state.lastSeedChange >= intervalMs)) {
       state.lastSeedChange = timestamp;
       
-      if (state.animSeed) {
-        const factor = state.animAmountSeed / 100;
-        if (factor > 0 && Math.random() < factor) {
-          state.seed = (state.seed + 1) % 99999999;
-          document.getElementById('seed-input').value = state.seed;
+      if (state.patches.seed.some(v => v !== null)) {
+        const mod = Math.abs(getDestMod('seed'));
+        if (mod > 0 && Math.random() < mod) {
+          const randomWaveDrive = state.patches.seed.reduce((sum, depth, srcIdx) => {
+            if (depth === null || srcIdx >= LFO_SOURCE_COUNT) return sum;
+            if (state.lfos[srcIdx].wave !== 'random') return sum;
+            const contribution = Math.abs((sourceVals[srcIdx] || 0) * (depth / 100));
+            return sum + contribution;
+          }, 0);
+
+          // Random-wave LFOs need larger seed jumps to avoid repetitive results.
+          const baseStep = Math.max(1, Math.round(4 + mod * 22));
+          let seedStep = baseStep;
+          if (randomWaveDrive > 0.001) {
+            const boosted = Math.round(4000 + Math.min(1, randomWaveDrive) * 82000);
+            const jitter = Math.floor(Math.random() * Math.max(256, Math.round(boosted * 0.6)));
+            seedStep = Math.max(seedStep, boosted + jitter);
+          }
+
+          setSeedValue(animBases.seed + seedStep, { syncInput: true, syncBase: true });
         }
       }
-      if (state.animPalette) {
-        const factor = state.animAmountPalette / 100;
+      if (state.patches.palette.some(v => v !== null)) {
         const PALETTES = ['mono', 'cyber', 'neon', 'blood', 'ice', 'gold', 'vaporwave', 'matrix', 'rust', 'gundam', 'evangelion'];
-        const wVal = getWaveValue(state.animTime, speedFactor, 0.0, state.animWave);
-        const offset = Math.round(5 * factor * wVal);
+        const offset = Math.round(5 * getDestMod('palette'));
         let targetIdx = (animBases.paletteIdx + offset) % PALETTES.length;
         if (targetIdx < 0) targetIdx += PALETTES.length;
         state.palette = PALETTES[targetIdx];
         document.querySelectorAll('.palette-btn').forEach(b => b.classList.toggle('active', b.dataset.palette === state.palette));
       }
-      if (state.animBg) {
-        const factor = state.animAmountBg / 100;
-        const BACKGROUNDS = ['light', 'dark', 'paper', 'black'];
-        const wVal = getWaveValue(state.animTime, speedFactor, Math.PI * 0.5, state.animWave);
-        const offset = Math.round(2 * factor * wVal);
+      if (state.patches.bg.some(v => v !== null)) {
+        const BACKGROUNDS = ['light', 'dark', 'paper', 'black', 'midnight', 'sepia', 'violet', 'jade', 'wine', 'steel', 'copper', 'slate'];
+        const offset = Math.round(2 * getDestMod('bg'));
         let targetIdx = (animBases.bgIdx + offset) % BACKGROUNDS.length;
         if (targetIdx < 0) targetIdx += BACKGROUNDS.length;
         state.bg = BACKGROUNDS[targetIdx];
         document.querySelectorAll('.bg-btn').forEach(b => b.classList.toggle('active', b.dataset.bg === state.bg));
       }
-      if (state.animMode) {
-        const factor = state.animAmountMode / 100;
-        const MODES = ['vectorheart','circuit','hud','glitch','blueprint','chaos','flow','sacred','glyph','gundam','evangelion'];
-        const wVal = getWaveValue(state.animTime, speedFactor, Math.PI * 0.75, state.animWave);
-        const offset = Math.round(5 * factor * wVal);
+      if (state.patches.mode.some(v => v !== null)) {
+        const MODES = ['vectorheart','circuit','hud','glitch','blueprint','chaos','flow','sacred','glyph','volumetric','gundam','evangelion'];
+        const offset = Math.round(5 * getDestMod('mode'));
         let targetIdx = (animBases.modeIdx + offset) % MODES.length;
         if (targetIdx < 0) targetIdx += MODES.length;
         state.mode = MODES[targetIdx];
@@ -4573,48 +5913,27 @@
   }
 
   function startAnimation() {
-    // Check if at least one animation target is enabled
-    const animControls = ['mode', 'detail', 'weight', 'chaos', 'text', 'custom-density', 'custom-size', 'seed', 'palette', 'bg', 'effects'];
-    const hasActiveLFO = animControls.some(ctrl => {
-      const camel = ctrl.split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join('');
-      return state['anim' + camel];
-    });
-    
-    if (!hasActiveLFO) {
-      // Enable detail and chaos animation targets by default
-      ['detail', 'chaos'].forEach(ctrl => {
-        const camel = ctrl.split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join('');
-        state['anim' + camel] = true;
-        const chkEl = document.getElementById(`anim-${ctrl}`);
-        if (chkEl) {
-          chkEl.checked = true;
-          chkEl.dispatchEvent(new Event('change'));
-        }
-      });
-    }
-
     animBases.detail = state.detail;
     animBases.weight = state.weight;
     animBases.chaos = state.chaos;
     animBases.textAmount = state.textAmount;
     animBases.customTextAmount = state.customTextAmount;
     animBases.customTextSize = state.customTextSize;
+    animBases.seed = state.seed;
 
-    const PALETTES = ['mono', 'cyber', 'neon', 'blood', 'ice', 'gold', 'vaporwave', 'matrix', 'rust', 'gundam', 'evangelion'];
+    const PALETTES = ['mono', 'cyber', 'neon', 'blood', 'ice', 'gold', 'vaporwave', 'matrix', 'rust', 'gundam', 'evangelion', 'sunset', 'ocean', 'forest', 'nordic', 'sakura', 'lava', 'synthwave', 'toxic'];
     animBases.paletteIdx = PALETTES.indexOf(state.palette);
     if (animBases.paletteIdx === -1) animBases.paletteIdx = 0;
 
-    const BACKGROUNDS = ['light', 'dark', 'paper', 'black'];
+    const BACKGROUNDS = ['light', 'dark', 'paper', 'black', 'midnight', 'sepia', 'violet', 'jade', 'wine', 'steel', 'copper', 'slate'];
     animBases.bgIdx = BACKGROUNDS.indexOf(state.bg);
     if (animBases.bgIdx === -1) animBases.bgIdx = 0;
 
-    const MODES = ['vectorheart','circuit','hud','glitch','blueprint','chaos','flow','sacred','glyph','gundam','evangelion'];
+    const MODES = ['vectorheart','circuit','hud','glitch','blueprint','chaos','flow','sacred','glyph','volumetric','gundam','evangelion'];
     animBases.modeIdx = MODES.indexOf(state.mode);
     if (animBases.modeIdx === -1) animBases.modeIdx = 0;
 
     state.animating = true; state.lastFrameTime = performance.now();
-    document.getElementById('btn-animate').innerHTML = '<span>⏹</span> DETENER';
-    document.getElementById('btn-animate').classList.add('recording');
     document.getElementById('status-dot').style.background = '#f04';
     document.getElementById('status-dot').style.boxShadow = '0 0 8px #f04';
     state.animFrame = requestAnimationFrame(animLoop);
@@ -4635,15 +5954,128 @@
       if (slider) slider.value = state[s.key];
       if (valEl) valEl.textContent = state[s.key];
     });
+
+    const audioSliders = [
+      { id: 'audio-low-amount-slider', valId: 'audio-low-amount-val', key: 'lowAmount' },
+      { id: 'audio-mid-amount-slider', valId: 'audio-mid-amount-val', key: 'midAmount' },
+      { id: 'audio-high-amount-slider', valId: 'audio-high-amount-val', key: 'highAmount' },
+    ];
+    audioSliders.forEach(s => {
+      const slider = document.getElementById(s.id);
+      const valEl = document.getElementById(s.valId);
+      if (slider) slider.value = state.audioRx[s.key];
+      if (valEl) valEl.textContent = state.audioRx[s.key];
+    });
   }
 
   function stopAnimation() {
     state.animating = false; if (state.animFrame) cancelAnimationFrame(state.animFrame);
-    document.getElementById('btn-animate').innerHTML = '<span>▶</span> ANIMAR';
-    document.getElementById('btn-animate').classList.remove('recording');
     document.getElementById('status-dot').style.background = '';
     document.getElementById('status-dot').style.boxShadow = '';
     syncSlidersToState();
+  }
+
+  // ── INIT: reset to minimal default state ─────────────────────────────────
+  function applyInitState() {
+    // Parameters
+    state.mode        = 'vectorheart';
+    state.palette     = 'mono';
+    state.bg          = 'dark';
+    state.detail      = 20;
+    state.weight      = 0;
+    state.chaos       = 0;
+    state.textAmount  = 0;
+    state.density     = 3;
+    state.complexity  = 5;
+    state.customTextAmount = 0;
+    state.customTextSize   = 20;
+    state.symmetry    = 'none';
+    state.vignette    = false;
+    state.grain       = false;
+    state.scanlines   = false;
+    state.chromatic   = false;
+    state.glitch      = false;
+    state.static      = false;
+    setSeedValue(Math.floor(Math.random() * 99999999), { syncInput: false, syncBase: true });
+
+    // LFOs: slow defaults
+    state.lfos[0] = { wave: 'sine',     rate: 8  };
+    state.lfos[1] = { wave: 'triangle', rate: 6  };
+    state.lfos[2] = { wave: 'square',   rate: 10 };
+    state.liveLfoRates = [8, 6, 10];
+
+    // Clear all patches
+    Object.keys(state.patches).forEach(dest => {
+      state.patches[dest] = state.patches[dest].map(() => null);
+    });
+
+    // Audio: stop if running, reset controls
+    if (state.audioRx.enabled) disableAudioReactiveInput();
+    state.audioRx.source     = 'mic';
+    state.audioRx.masterSend = 100;
+    state.audioRx.smooth     = 0.82;
+
+    // Sync animBases
+    const _PALS = ['mono','cyber','neon','blood','ice','gold','vaporwave','matrix','rust','gundam','evangelion','sunset','ocean','forest','nordic','sakura','lava','synthwave','toxic'];
+    const _BGS  = ['light','dark','paper','black','midnight','sepia','violet','jade','wine','steel','copper','slate'];
+    animBases.detail           = state.detail;
+    animBases.weight           = state.weight;
+    animBases.chaos            = state.chaos;
+    animBases.textAmount       = state.textAmount;
+    animBases.customTextAmount = state.customTextAmount;
+    animBases.customTextSize   = state.customTextSize;
+    animBases.paletteIdx       = _PALS.indexOf(state.palette);
+    animBases.bgIdx            = _BGS.indexOf(state.bg);
+    animBases.modeIdx          = 0;
+
+    // Sync all UI
+    syncSlidersToState();
+    renderPatchBay();
+    syncBlockLockUi();
+
+    document.querySelectorAll('.palette-btn').forEach(b => b.classList.toggle('active', b.dataset.palette === state.palette));
+    document.querySelectorAll('.bg-btn').forEach(b => b.classList.toggle('active', b.dataset.bg === state.bg));
+    document.querySelectorAll('.sym-btn').forEach(b => b.classList.toggle('active', b.dataset.sym === state.symmetry));
+
+    const modeSelect = document.getElementById('mode-select');
+    if (modeSelect) modeSelect.value = state.mode;
+    const modeBadge = document.getElementById('mode-badge');
+    if (modeBadge) modeBadge.textContent = `MODO::${state.mode.toUpperCase()}`;
+
+    ['vignette','grain','scanlines','chromatic','glitch','static'].forEach(fx => {
+      const el = document.getElementById(`fx-${fx}`);
+      if (el) el.checked = false;
+    });
+    document.querySelector('.canvas-scanlines')?.classList.add('hidden');
+
+    document.getElementById('seed-input').value = state.seed;
+
+    // Sync LFO rate sliders and wave buttons
+    [0, 1, 2].forEach(i => {
+      const rateSlider = document.querySelector(`.lfo-rate-slider[data-lfo="${i}"]`);
+      const rateVal    = document.querySelector(`.lfo-rate-val[data-lfo="${i}"]`);
+      if (rateSlider) rateSlider.value = state.lfos[i].rate;
+      if (rateVal)    rateVal.textContent = state.lfos[i].rate;
+      document.querySelectorAll(`.lfo-wave-btn[data-lfo="${i}"]`).forEach(b =>
+        b.classList.toggle('active', b.dataset.wave === state.lfos[i].wave)
+      );
+      updateLfoJackStyle(i);
+    });
+
+    // Audio UI
+    const audioSrc = document.getElementById('audio-source-select');
+    if (audioSrc) audioSrc.value = state.audioRx.source;
+    const masterSlider = document.getElementById('audio-master-send-slider');
+    const masterVal    = document.getElementById('audio-master-send-val');
+    if (masterSlider) masterSlider.value = state.audioRx.masterSend;
+    if (masterVal)    masterVal.textContent = state.audioRx.masterSend;
+    const smoothSlider = document.getElementById('audio-smooth-slider');
+    const smoothVal    = document.getElementById('audio-smooth-val');
+    if (smoothSlider) smoothSlider.value = Math.round(state.audioRx.smooth * 100);
+    if (smoothVal)    smoothVal.textContent = Math.round(state.audioRx.smooth * 100);
+    updateAudioRxUi();
+
+    document.getElementById('footer-info').textContent = 'INIT::ESTADO MÍNIMO';
   }
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -4679,15 +6111,15 @@
     animBases.chaos = state.chaos;
     animBases.textAmount = state.textAmount;
 
-    const PALETTES = ['mono', 'cyber', 'neon', 'blood', 'ice', 'gold', 'vaporwave', 'matrix', 'rust', 'gundam', 'evangelion'];
+    const PALETTES = ['mono', 'cyber', 'neon', 'blood', 'ice', 'gold', 'vaporwave', 'matrix', 'rust', 'gundam', 'evangelion', 'sunset', 'ocean', 'forest', 'nordic', 'sakura', 'lava', 'synthwave', 'toxic'];
     animBases.paletteIdx = PALETTES.indexOf(state.palette);
     if (animBases.paletteIdx === -1) animBases.paletteIdx = 0;
 
-    const BACKGROUNDS = ['light', 'dark', 'paper', 'black'];
+    const BACKGROUNDS = ['light', 'dark', 'paper', 'black', 'midnight', 'sepia', 'violet', 'jade', 'wine', 'steel', 'copper', 'slate'];
     animBases.bgIdx = BACKGROUNDS.indexOf(state.bg);
     if (animBases.bgIdx === -1) animBases.bgIdx = 0;
 
-    const MODES = ['vectorheart','circuit','hud','glitch','blueprint','chaos','flow','sacred','glyph','gundam','evangelion'];
+    const MODES = ['vectorheart','circuit','hud','glitch','blueprint','chaos','flow','sacred','glyph','volumetric','gundam','evangelion'];
     animBases.modeIdx = MODES.indexOf(state.mode);
     if (animBases.modeIdx === -1) animBases.modeIdx = 0;
 
@@ -4796,6 +6228,621 @@
   }
 
   // ─────────────────────────────────────────────────────────────────────────
+  //  USER PRESETS (SAVE / LOAD / EXPORT / IMPORT)
+  // ─────────────────────────────────────────────────────────────────────────
+
+  const USER_PRESETS_STORAGE_KEY = 'heartflash-user-presets-v1';
+  const USER_PRESETS_SEEDED_KEY = 'heartflash-user-presets-seeded-v1';
+  const PRESET_PALETTES = ['mono', 'cyber', 'neon', 'blood', 'ice', 'gold', 'vaporwave', 'matrix', 'rust', 'gundam', 'evangelion', 'sunset', 'ocean', 'forest', 'nordic', 'sakura', 'lava', 'synthwave', 'toxic'];
+  const PRESET_BACKGROUNDS = ['light', 'dark', 'paper', 'black', 'midnight', 'sepia', 'violet', 'jade', 'wine', 'steel', 'copper', 'slate'];
+  const PRESET_MODES = ['vectorheart', 'circuit', 'hud', 'glitch', 'blueprint', 'chaos', 'flow', 'sacred', 'glyph', 'volumetric', 'gundam', 'evangelion'];
+  const PRESET_SYMMETRY = ['none', 'mirror-y', 'mirror-x', '4way'];
+
+  function loadUserPresets() {
+    try {
+      const raw = localStorage.getItem(USER_PRESETS_STORAGE_KEY);
+      if (!raw) return {};
+      const parsed = JSON.parse(raw);
+      return parsed && typeof parsed === 'object' ? parsed : {};
+    } catch (_) {
+      return {};
+    }
+  }
+
+  function saveUserPresets(presets) {
+    try {
+      localStorage.setItem(USER_PRESETS_STORAGE_KEY, JSON.stringify(presets));
+    } catch (_) {
+      // Ignore localStorage failures.
+    }
+  }
+
+  function normalizePresetName(name) {
+    if (!name) return '';
+    return String(name).trim().replace(/\s+/g, ' ').slice(0, 42);
+  }
+
+  function clonePatchState(sourcePatches) {
+    const out = {};
+    Object.keys(state.patches).forEach(dest => {
+      const src = Array.isArray(sourcePatches?.[dest]) ? sourcePatches[dest] : state.patches[dest];
+      out[dest] = [];
+      for (let i = 0; i < MOD_SOURCE_COUNT; i++) {
+        out[dest][i] = src[i] == null ? null : Math.max(0, Math.min(100, Number(src[i]) || 0));
+      }
+    });
+    return out;
+  }
+
+  function makeEmptyPresetPatches() {
+    const patches = {};
+    Object.keys(state.patches).forEach(dest => {
+      patches[dest] = new Array(MOD_SOURCE_COUNT).fill(null);
+    });
+    return patches;
+  }
+
+  function setPresetPatch(patches, dest, src, depth) {
+    if (!patches[dest] || src < 0 || src >= MOD_SOURCE_COUNT) return;
+    patches[dest][src] = Math.max(0, Math.min(100, Number(depth) || 0));
+  }
+
+  function createModePreset(config) {
+    const patches = makeEmptyPresetPatches();
+    (config.patchList || []).forEach(([dest, src, depth]) => setPresetPatch(patches, dest, src, depth));
+    return {
+      version: 1,
+      app: 'heartflash',
+      savedAt: 'preloaded',
+      state: {
+        mode: config.mode,
+        palette: config.palette,
+        bg: config.bg,
+        detail: config.detail,
+        weight: config.weight,
+        chaos: config.chaos,
+        textAmount: config.textAmount,
+        customText: config.customText || '',
+        customFont: config.customFont || "'Share Tech Mono', monospace",
+        customFontWeight: config.customFontWeight || '400',
+        customTextAmount: config.customTextAmount ?? 10,
+        customTextSize: config.customTextSize ?? 24,
+        customTextOpacity: config.customTextOpacity ?? 65,
+        customTextColor: config.customTextColor || 'auto',
+        symmetry: config.symmetry || 'none',
+        vignette: !!config.vignette,
+        grain: !!config.grain,
+        scanlines: !!config.scanlines,
+        chromatic: !!config.chromatic,
+        glitch: !!config.glitch,
+        static: !!config.static,
+        fadeDuration: config.fadeDuration ?? 4,
+        seed: config.seed ?? Math.floor(Math.random() * 99999999),
+        lfos: config.lfos || [
+          { wave: 'sine', rate: 10 },
+          { wave: 'triangle', rate: 7 },
+          { wave: 'square', rate: 12 },
+        ],
+        audioRx: {
+          source: 'mic',
+          deviceId: 'default',
+          lowAmount: 55,
+          midAmount: 45,
+          highAmount: 35,
+          masterSend: 100,
+          smooth: 0.82,
+        },
+        patches,
+        patchGroups: {
+          core: true,
+          scene: true,
+          lfo: true,
+        },
+      }
+    };
+  }
+
+  function buildPreloadedModePresets() {
+    return {
+      'mode-vectorheart-prime': createModePreset({
+        mode: 'vectorheart', palette: 'synthwave', bg: 'black', symmetry: 'mirror-y',
+        detail: 58, weight: 22, chaos: 14, textAmount: 18, customTextAmount: 22, customTextSize: 34,
+        customTextColor: 'holo-foil', grain: true, vignette: true,
+        lfos: [{ wave: 'sine', rate: 12 }, { wave: 'triangle', rate: 7 }, { wave: 'random', rate: 16 }],
+        patchList: [['detail', 0, 62], ['weight', 1, 54], ['effects', 2, 49], ['palette', 0, 41], ['seed', 2, 67], ['lfo3Rate', 1, 58]]
+      }),
+      'mode-circuit-gridflux': createModePreset({
+        mode: 'circuit', palette: 'cyber', bg: 'midnight', symmetry: '4way',
+        detail: 68, weight: 19, chaos: 26, textAmount: 36, customTextAmount: 12, customTextSize: 20,
+        scanlines: true, grain: true,
+        lfos: [{ wave: 'square', rate: 15 }, { wave: 'sawtooth', rate: 11 }, { wave: 'triangle', rate: 8 }],
+        patchList: [['detail', 0, 55], ['chaos', 1, 61], ['text', 2, 46], ['lfo1Rate', 2, 52], ['bg', 1, 37], ['mode', 0, 28]]
+      }),
+      'mode-hud-command': createModePreset({
+        mode: 'hud', palette: 'matrix', bg: 'dark', symmetry: 'none',
+        detail: 52, weight: 14, chaos: 10, textAmount: 44, customTextAmount: 18, customTextSize: 26,
+        customTextColor: 'matrix-green', scanlines: true,
+        lfos: [{ wave: 'triangle', rate: 9 }, { wave: 'sine', rate: 6 }, { wave: 'random', rate: 14 }],
+        patchList: [['text', 0, 70], ['customDensity', 1, 48], ['customSize', 2, 44], ['effects', 2, 33], ['seed', 2, 59], ['palette', 0, 24]]
+      }),
+      'mode-glitch-overdrive': createModePreset({
+        mode: 'glitch', palette: 'blood', bg: 'black', symmetry: 'none',
+        detail: 64, weight: 26, chaos: 79, textAmount: 22, customTextAmount: 16, customTextSize: 18,
+        chromatic: true, glitch: true, static: true, grain: true,
+        lfos: [{ wave: 'random', rate: 22 }, { wave: 'sawtooth', rate: 17 }, { wave: 'square', rate: 19 }],
+        patchList: [['chaos', 0, 84], ['effects', 1, 69], ['seed', 0, 78], ['palette', 2, 52], ['mode', 0, 42], ['bg', 1, 36]]
+      }),
+      'mode-blueprint-lattice': createModePreset({
+        mode: 'blueprint', palette: 'ocean', bg: 'paper', symmetry: 'mirror-x',
+        detail: 72, weight: 9, chaos: 12, textAmount: 8, customTextAmount: 10, customTextSize: 22,
+        vignette: true,
+        lfos: [{ wave: 'sine', rate: 8 }, { wave: 'triangle', rate: 5 }, { wave: 'sine', rate: 11 }],
+        patchList: [['detail', 0, 63], ['weight', 1, 33], ['lfo2Rate', 0, 51], ['palette', 2, 28], ['bg', 1, 22]]
+      }),
+      'mode-chaos-ritual': createModePreset({
+        mode: 'chaos', palette: 'lava', bg: 'wine', symmetry: 'none',
+        detail: 80, weight: 37, chaos: 88, textAmount: 14, customTextAmount: 8, customTextSize: 28,
+        glitch: true, chromatic: true,
+        lfos: [{ wave: 'random', rate: 24 }, { wave: 'random', rate: 18 }, { wave: 'sawtooth-rev', rate: 13 }],
+        patchList: [['chaos', 0, 90], ['weight', 1, 66], ['seed', 0, 82], ['effects', 2, 63], ['mode', 1, 44], ['lfo1Rate', 2, 57]]
+      }),
+      'mode-flow-tide': createModePreset({
+        mode: 'flow', palette: 'forest', bg: 'jade', symmetry: 'mirror-y',
+        detail: 60, weight: 13, chaos: 22, textAmount: 6, customTextAmount: 12, customTextSize: 32,
+        grain: true,
+        lfos: [{ wave: 'sine', rate: 6 }, { wave: 'triangle', rate: 9 }, { wave: 'sine', rate: 4 }],
+        patchList: [['detail', 0, 48], ['customSize', 1, 52], ['effects', 2, 31], ['palette', 1, 34], ['bg', 0, 29], ['lfo2Rate', 0, 46]]
+      }),
+      'mode-sacred-codex': createModePreset({
+        mode: 'sacred', palette: 'gold', bg: 'sepia', symmetry: '4way',
+        detail: 66, weight: 11, chaos: 9, textAmount: 18, customTextAmount: 14, customTextSize: 30,
+        vignette: true, grain: true,
+        lfos: [{ wave: 'triangle', rate: 5 }, { wave: 'sine', rate: 7 }, { wave: 'square', rate: 3 }],
+        patchList: [['detail', 0, 58], ['text', 1, 36], ['customDensity', 2, 40], ['palette', 2, 27], ['seed', 2, 45]]
+      }),
+      'mode-glyph-archive': createModePreset({
+        mode: 'glyph', palette: 'nordic', bg: 'steel', symmetry: 'none',
+        detail: 57, weight: 16, chaos: 18, textAmount: 54, customTextAmount: 38, customTextSize: 24,
+        customTextColor: 'cyan-glow', scanlines: true,
+        lfos: [{ wave: 'square', rate: 8 }, { wave: 'random', rate: 12 }, { wave: 'triangle', rate: 6 }],
+        patchList: [['text', 0, 76], ['customDensity', 1, 64], ['customSize', 2, 31], ['seed', 1, 61], ['mode', 2, 24]]
+      }),
+      'mode-volumetric-parallax': createModePreset({
+        mode: 'volumetric', palette: 'ice', bg: 'midnight', symmetry: 'none',
+        detail: 70, weight: 21, chaos: 24, textAmount: 24, customTextAmount: 14, customTextSize: 24,
+        grain: true, chromatic: true,
+        lfos: [{ wave: 'sine', rate: 11 }, { wave: 'triangle', rate: 9 }, { wave: 'sawtooth', rate: 7 }],
+        patchList: [['detail', 0, 58], ['weight', 1, 52], ['chaos', 2, 41], ['mode', 0, 33], ['bg', 1, 27], ['lfo1Rate', 2, 49]]
+      }),
+      'mode-gundam-tactical': createModePreset({
+        mode: 'gundam', palette: 'gundam', bg: 'black', symmetry: 'mirror-y',
+        detail: 74, weight: 20, chaos: 34, textAmount: 20, customTextAmount: 15, customTextSize: 26,
+        chromatic: true,
+        lfos: [{ wave: 'sawtooth', rate: 14 }, { wave: 'square', rate: 10 }, { wave: 'random', rate: 9 }],
+        patchList: [['detail', 0, 64], ['weight', 1, 49], ['effects', 2, 44], ['palette', 0, 39], ['seed', 2, 55], ['lfo1Rate', 1, 53]]
+      }),
+      'mode-evangelion-impact': createModePreset({
+        mode: 'evangelion', palette: 'evangelion', bg: 'violet', symmetry: 'none',
+        detail: 71, weight: 24, chaos: 47, textAmount: 28, customTextAmount: 19, customTextSize: 22,
+        glitch: true, grain: true,
+        lfos: [{ wave: 'triangle', rate: 13 }, { wave: 'random', rate: 15 }, { wave: 'square', rate: 11 }],
+        patchList: [['detail', 0, 51], ['chaos', 1, 73], ['effects', 1, 58], ['seed', 1, 69], ['palette', 2, 35], ['bg', 2, 28]]
+      }),
+    };
+  }
+
+  function buildPresetSnapshot() {
+    return {
+      version: 1,
+      app: 'heartflash',
+      savedAt: new Date().toISOString(),
+      state: {
+        mode: state.mode,
+        palette: state.palette,
+        bg: state.bg,
+        detail: state.detail,
+        weight: state.weight,
+        chaos: state.chaos,
+        textAmount: state.textAmount,
+        customText: state.customText,
+        customFont: state.customFont,
+        customFontWeight: state.customFontWeight,
+        customTextAmount: state.customTextAmount,
+        customTextSize: state.customTextSize,
+        customTextOpacity: state.customTextOpacity,
+        customTextColor: state.customTextColor,
+        symmetry: state.symmetry,
+        vignette: !!state.vignette,
+        grain: !!state.grain,
+        scanlines: !!state.scanlines,
+        chromatic: !!state.chromatic,
+        glitch: !!state.glitch,
+        static: !!state.static,
+        fadeDuration: state.fadeDuration,
+        seed: state.seed,
+        lfos: state.lfos.map(lfo => ({ wave: lfo.wave, rate: lfo.rate })),
+        audioRx: {
+          source: state.audioRx.source,
+          deviceId: state.audioRx.deviceId,
+          lowAmount: state.audioRx.lowAmount,
+          midAmount: state.audioRx.midAmount,
+          highAmount: state.audioRx.highAmount,
+          masterSend: state.audioRx.masterSend,
+          smooth: state.audioRx.smooth,
+        },
+        patches: clonePatchState(state.patches),
+        patchGroups: {
+          core: !!patchGroupState.core,
+          scene: !!patchGroupState.scene,
+          lfo: !!patchGroupState.lfo,
+        },
+        blockLocks: { ...state.blockLocks },
+      }
+    };
+  }
+
+  function getHeaderBlockKey(header) {
+    if (header.closest('.section-mode')) return 'mode';
+    if (header.closest('.section-params')) return 'params';
+    if (header.closest('.section-text')) return 'text';
+    if (header.closest('.section-symmetry')) return 'symmetry';
+    if (header.closest('.section-palette')) return 'palette';
+    if (header.closest('.section-bg')) return 'bg';
+    if (header.closest('.section-effects')) return 'effects';
+    if (header.closest('.section-anim')) {
+      const txt = header.textContent.toUpperCase();
+      if (txt.includes('MODULACIÓN AUDIO')) return 'audio';
+      return 'lfo';
+    }
+    return null;
+  }
+
+  function ensureBlockLockControls() {
+    document.querySelectorAll('.section-header, .top-section-header').forEach(header => {
+      const blockKey = getHeaderBlockKey(header);
+      if (!blockKey || !state.blockLocks.hasOwnProperty(blockKey) || header.dataset.lockUiReady === '1') return;
+
+      const lockGroup = document.createElement('div');
+      lockGroup.className = 'header-lock-group';
+
+      const blockBtn = document.createElement('button');
+      blockBtn.type = 'button';
+      blockBtn.className = 'header-lock-btn block-lock';
+      blockBtn.title = 'Bloquear bloque';
+      blockBtn.textContent = '🔒';
+      blockBtn.addEventListener('click', () => {
+        setBlockLock(blockKey, !state.blockLocks[blockKey]);
+      });
+
+      lockGroup.appendChild(blockBtn);
+
+      const inlineControls = Array.from(header.children).find(child => child !== lockGroup && child.style && child.style.marginLeft === 'auto');
+      if (inlineControls) {
+        header.insertBefore(lockGroup, inlineControls);
+      } else {
+        header.appendChild(lockGroup);
+      }
+
+      header.dataset.lockUiReady = '1';
+    });
+  }
+
+  function syncBlockLockUi() {
+    ensureBlockLockControls();
+    document.querySelectorAll('.section-header, .top-section-header').forEach(header => {
+      const blockKey = getHeaderBlockKey(header);
+      if (!blockKey) return;
+      const group = header.querySelector('.header-lock-group');
+      if (!group) return;
+      const blockBtn = group.querySelector('.block-lock');
+      const blockLocked = !!state.blockLocks[blockKey];
+      if (blockBtn) {
+        blockBtn.classList.toggle('active', blockLocked);
+        blockBtn.textContent = blockLocked ? '🔒' : '🔓';
+        blockBtn.title = blockLocked ? 'Bloque bloqueado: click para desbloquear' : 'Bloquear bloque';
+      }
+    });
+  }
+
+  function syncUiFromState() {
+    ensureBlockLockControls();
+    syncSlidersToState();
+
+    const modeSelect = document.getElementById('mode-select');
+    if (modeSelect) modeSelect.value = state.mode;
+    const modeBadge = document.getElementById('mode-badge');
+    if (modeBadge) modeBadge.textContent = `MODO::${state.mode.toUpperCase()}`;
+
+    const customTextInput = document.getElementById('custom-text-input');
+    if (customTextInput) customTextInput.value = state.customText || '';
+
+    const fontSelect = document.getElementById('custom-font-select');
+    if (fontSelect) fontSelect.value = state.customFont;
+    updateWeightSelector();
+    const weightSelect = document.getElementById('custom-weight-select');
+    if (weightSelect) weightSelect.value = state.customFontWeight;
+
+    const opacitySlider = document.getElementById('custom-text-opacity-slider');
+    const opacityVal = document.getElementById('custom-text-opacity-val');
+    if (opacitySlider) opacitySlider.value = String(state.customTextOpacity);
+    if (opacityVal) opacityVal.textContent = String(state.customTextOpacity);
+
+    const selectedSquare = document.getElementById('selected-color-square');
+    if (selectedSquare) selectedSquare.className = `color-square ${state.customTextColor}-square`;
+    document.querySelectorAll('.color-dropdown-item').forEach(item => {
+      item.classList.toggle('active', item.dataset.value === state.customTextColor);
+    });
+
+    document.querySelectorAll('.palette-btn').forEach(b => b.classList.toggle('active', b.dataset.palette === state.palette));
+    document.querySelectorAll('.bg-btn').forEach(b => b.classList.toggle('active', b.dataset.bg === state.bg));
+    document.querySelectorAll('.sym-btn').forEach(b => b.classList.toggle('active', b.dataset.sym === state.symmetry));
+    document.querySelectorAll('.preset-btn').forEach(b => b.classList.remove('active'));
+
+    ['vignette', 'grain', 'scanlines', 'chromatic', 'glitch', 'static'].forEach(fx => {
+      const el = document.getElementById(`fx-${fx}`);
+      if (el) el.checked = !!state[fx];
+    });
+    document.querySelector('.canvas-scanlines')?.classList.toggle('hidden', !state.scanlines);
+
+    const seedInput = document.getElementById('seed-input');
+    if (seedInput) seedInput.value = String(state.seed);
+
+    [0, 1, 2].forEach(i => {
+      const rateSlider = document.querySelector(`.lfo-rate-slider[data-lfo="${i}"]`);
+      const rateVal = document.querySelector(`.lfo-rate-val[data-lfo="${i}"]`);
+      if (rateSlider) rateSlider.value = state.lfos[i].rate;
+      if (rateVal) rateVal.textContent = state.lfos[i].rate;
+      document.querySelectorAll(`.lfo-wave-btn[data-lfo="${i}"]`).forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.wave === state.lfos[i].wave);
+      });
+      updateLfoJackStyle(i);
+    });
+
+    const sourceSelect = document.getElementById('audio-source-select');
+    if (sourceSelect) sourceSelect.value = state.audioRx.source;
+    const masterSlider = document.getElementById('audio-master-send-slider');
+    if (masterSlider) masterSlider.value = String(Math.round(state.audioRx.masterSend));
+    const smoothSlider = document.getElementById('audio-smooth-slider');
+    if (smoothSlider) smoothSlider.value = String(Math.round(state.audioRx.smooth * 100));
+    updateAudioRxUi();
+
+    syncBlockLockUi();
+
+    renderPatchBay();
+  }
+
+  function applyPresetSnapshot(payload, nameHint = 'PRESET') {
+    const snap = payload && typeof payload === 'object' && payload.state ? payload.state : payload;
+    if (!snap || typeof snap !== 'object') return false;
+
+    state.isBatchUpdating = true;
+
+    if (typeof snap.mode === 'string' && PRESET_MODES.includes(snap.mode)) state.mode = snap.mode;
+    if (typeof snap.palette === 'string' && PRESET_PALETTES.includes(snap.palette)) state.palette = snap.palette;
+    if (typeof snap.bg === 'string' && PRESET_BACKGROUNDS.includes(snap.bg)) state.bg = snap.bg;
+
+    const clampNum = (v, min, max, fallback) => {
+      const n = Number(v);
+      if (!Number.isFinite(n)) return fallback;
+      return Math.max(min, Math.min(max, n));
+    };
+
+    state.detail = clampNum(snap.detail, 0, 100, state.detail);
+    state.weight = clampNum(snap.weight, 0, 100, state.weight);
+    state.chaos = clampNum(snap.chaos, 0, 100, state.chaos);
+    state.textAmount = clampNum(snap.textAmount, 0, 100, state.textAmount);
+    state.customTextAmount = clampNum(snap.customTextAmount, 0, 100, state.customTextAmount);
+    state.customTextSize = clampNum(snap.customTextSize, 4, 150, state.customTextSize);
+    state.customTextOpacity = clampNum(snap.customTextOpacity, 0, 100, state.customTextOpacity);
+    state.fadeDuration = clampNum(snap.fadeDuration, 1, 10, state.fadeDuration);
+    state.complexity = Math.round(state.detail * 40 / 100);
+    state.density = Math.round(state.detail * 15 / 100);
+
+    if (typeof snap.customText === 'string') state.customText = snap.customText;
+    if (typeof snap.customFont === 'string') state.customFont = snap.customFont;
+    if (typeof snap.customFontWeight === 'string') state.customFontWeight = snap.customFontWeight;
+    if (typeof snap.customTextColor === 'string') state.customTextColor = snap.customTextColor;
+    if (typeof snap.symmetry === 'string' && PRESET_SYMMETRY.includes(snap.symmetry)) state.symmetry = snap.symmetry;
+
+    ['vignette', 'grain', 'scanlines', 'chromatic', 'glitch', 'static'].forEach(fx => {
+      if (typeof snap[fx] === 'boolean') state[fx] = snap[fx];
+    });
+
+    if (Number.isFinite(Number(snap.seed))) {
+      setSeedValue(Number(snap.seed), { syncInput: true, syncBase: true });
+    }
+
+    if (Array.isArray(snap.lfos)) {
+      for (let i = 0; i < 3; i++) {
+        const src = snap.lfos[i] || {};
+        if (typeof src.wave === 'string') state.lfos[i].wave = src.wave;
+        if (Number.isFinite(Number(src.rate))) state.lfos[i].rate = clampNum(src.rate, 1, 160, state.lfos[i].rate);
+      }
+    }
+
+    if (snap.audioRx && typeof snap.audioRx === 'object') {
+      const arx = snap.audioRx;
+      if (typeof arx.source === 'string') state.audioRx.source = arx.source;
+      if (typeof arx.deviceId === 'string') state.audioRx.deviceId = arx.deviceId;
+      state.audioRx.lowAmount = clampNum(arx.lowAmount, 0, 100, state.audioRx.lowAmount);
+      state.audioRx.midAmount = clampNum(arx.midAmount, 0, 100, state.audioRx.midAmount);
+      state.audioRx.highAmount = clampNum(arx.highAmount, 0, 100, state.audioRx.highAmount);
+      state.audioRx.masterSend = clampNum(arx.masterSend, 0, 150, state.audioRx.masterSend);
+      state.audioRx.smooth = clampNum(arx.smooth, 0, 0.98, state.audioRx.smooth);
+    }
+
+    if (snap.patches && typeof snap.patches === 'object') {
+      const normalized = clonePatchState(snap.patches);
+      Object.keys(state.patches).forEach(dest => {
+        state.patches[dest] = normalized[dest];
+      });
+    }
+
+    if (snap.patchGroups && typeof snap.patchGroups === 'object') {
+      if (typeof snap.patchGroups.core === 'boolean') patchGroupState.core = snap.patchGroups.core;
+      if (typeof snap.patchGroups.scene === 'boolean') patchGroupState.scene = snap.patchGroups.scene;
+      if (typeof snap.patchGroups.lfo === 'boolean') patchGroupState.lfo = snap.patchGroups.lfo;
+    }
+
+    if (snap.blockLocks && typeof snap.blockLocks === 'object') {
+      Object.keys(state.blockLocks).forEach(key => {
+        if (typeof snap.blockLocks[key] === 'boolean') state.blockLocks[key] = snap.blockLocks[key];
+      });
+    }
+
+    animBases.detail = state.detail;
+    animBases.weight = state.weight;
+    animBases.chaos = state.chaos;
+    animBases.textAmount = state.textAmount;
+    animBases.customTextAmount = state.customTextAmount;
+    animBases.customTextSize = state.customTextSize;
+    animBases.seed = state.seed;
+    animBases.paletteIdx = PRESET_PALETTES.indexOf(state.palette);
+    if (animBases.paletteIdx === -1) animBases.paletteIdx = 0;
+    animBases.bgIdx = PRESET_BACKGROUNDS.indexOf(state.bg);
+    if (animBases.bgIdx === -1) animBases.bgIdx = 0;
+    animBases.modeIdx = PRESET_MODES.indexOf(state.mode);
+    if (animBases.modeIdx === -1) animBases.modeIdx = 0;
+
+    state.isBatchUpdating = false;
+    syncUiFromState();
+    if (!state.animating) draw(0, true);
+    setFooterInfo(`PRESET::CARGADO ${String(nameHint).toUpperCase()}`);
+    return true;
+  }
+
+  function downloadJsonFile(filename, data) {
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  function initUserPresetControls() {
+    const select = document.getElementById('preset-select');
+    const btnSave = document.getElementById('btn-preset-save');
+    const btnLoad = document.getElementById('btn-preset-load');
+    const btnExport = document.getElementById('btn-preset-export');
+    const btnImport = document.getElementById('btn-preset-import');
+    const btnDelete = document.getElementById('btn-preset-delete');
+    const importInput = document.getElementById('preset-import-file');
+    if (!select || !btnSave || !btnLoad || !btnExport || !btnImport || !btnDelete || !importInput) return;
+
+    let userPresets = loadUserPresets();
+    try {
+      const alreadySeeded = localStorage.getItem(USER_PRESETS_SEEDED_KEY) === '1';
+      if (!alreadySeeded) {
+        const preloaded = buildPreloadedModePresets();
+        Object.keys(preloaded).forEach(name => {
+          if (!userPresets[name]) userPresets[name] = preloaded[name];
+        });
+        saveUserPresets(userPresets);
+        localStorage.setItem(USER_PRESETS_SEEDED_KEY, '1');
+      }
+    } catch (_) {
+      // If localStorage is unavailable, continue with in-memory presets only.
+    }
+
+    const refreshSelect = (selected = '') => {
+      const names = Object.keys(userPresets).sort((a, b) => a.localeCompare(b));
+      select.innerHTML = '';
+      const placeholder = document.createElement('option');
+      placeholder.value = '';
+      placeholder.textContent = '--';
+      select.appendChild(placeholder);
+      names.forEach(name => {
+        const opt = document.createElement('option');
+        opt.value = name;
+        opt.textContent = name.toUpperCase();
+        select.appendChild(opt);
+      });
+      if (selected && userPresets[selected]) select.value = selected;
+    };
+
+    refreshSelect();
+
+    btnSave.addEventListener('click', () => {
+      const seedPad = String(state.seed).padStart(8, '0').slice(-4);
+      const suggested = select.value || `preset-${seedPad}`;
+      const asked = window.prompt('Nombre del preset para guardar:', suggested);
+      const name = normalizePresetName(asked);
+      if (!name) return;
+      userPresets[name] = buildPresetSnapshot();
+      saveUserPresets(userPresets);
+      refreshSelect(name);
+      setFooterInfo(`PRESET::GUARDADO ${name.toUpperCase()}`);
+    });
+
+    btnLoad.addEventListener('click', () => {
+      const name = select.value;
+      if (!name || !userPresets[name]) {
+        setFooterInfo('PRESET::SELECCIONA UNO PARA CARGAR');
+        return;
+      }
+      applyPresetSnapshot(userPresets[name], name);
+    });
+
+    btnExport.addEventListener('click', () => {
+      const name = select.value;
+      if (!name || !userPresets[name]) {
+        setFooterInfo('PRESET::SELECCIONA UNO PARA EXPORTAR');
+        return;
+      }
+      downloadJsonFile(`heartflash_preset_${name}.json`, { name, ...userPresets[name] });
+      setFooterInfo(`PRESET::EXPORTADO ${name.toUpperCase()}`);
+    });
+
+    btnImport.addEventListener('click', () => {
+      importInput.click();
+    });
+
+    importInput.addEventListener('change', () => {
+      const file = importInput.files && importInput.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = () => {
+        try {
+          const parsed = JSON.parse(String(reader.result || '{}'));
+          const candidateName = parsed?.name || file.name.replace(/\.json$/i, '');
+          const name = normalizePresetName(candidateName) || `preset-${Date.now()}`;
+          const payload = parsed?.state ? parsed : { state: parsed };
+          if (!applyPresetSnapshot(payload, name)) {
+            setFooterInfo('PRESET::JSON INVÁLIDO');
+            return;
+          }
+          userPresets[name] = payload;
+          saveUserPresets(userPresets);
+          refreshSelect(name);
+          setFooterInfo(`PRESET::IMPORTADO ${name.toUpperCase()}`);
+        } catch (err) {
+          console.error(err);
+          setFooterInfo('PRESET::ERROR AL IMPORTAR JSON');
+        } finally {
+          importInput.value = '';
+        }
+      };
+      reader.readAsText(file);
+    });
+
+    btnDelete.addEventListener('click', () => {
+      const name = select.value;
+      if (!name || !userPresets[name]) {
+        setFooterInfo('PRESET::SELECCIONA UNO PARA BORRAR');
+        return;
+      }
+      const ok = window.confirm(`Borrar preset "${name}"?`);
+      if (!ok) return;
+      delete userPresets[name];
+      saveUserPresets(userPresets);
+      refreshSelect('');
+      setFooterInfo(`PRESET::BORRADO ${name.toUpperCase()}`);
+    });
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
   //  UI WIRING
   // ─────────────────────────────────────────────────────────────────────────
 
@@ -4824,82 +6871,9 @@
   wireSlider('weight-slider',     'weight',     'weight-val');
   wireSlider('chaos-slider',      'chaos',      'chaos-val');
   wireSlider('text-slider',       'textAmount', 'text-val');
-  wireSlider('speed-slider',      'animSpeed',  'speed-val');
-  wireSlider('speed-mod-slider',  'animSpeedMod', 'speed-mod-val');
-  wireSlider('anim-noise-slider', 'animNoise',  'anim-noise-val');
   wireSlider('custom-text-density-slider', 'customTextAmount', 'custom-text-density-val');
   wireSlider('custom-text-size-slider',    'customTextSize',   'custom-text-size-val');
   wireSlider('custom-text-opacity-slider', 'customTextOpacity', 'custom-text-opacity-val');
-
-  // Individual animation amount sliders
-  wireSlider('anim-detail-amount-slider', 'animAmountDetail', 'anim-detail-amount-val');
-  wireSlider('anim-weight-amount-slider', 'animAmountWeight', 'anim-weight-amount-val');
-  wireSlider('anim-chaos-amount-slider', 'animAmountChaos', 'anim-chaos-amount-val');
-  wireSlider('anim-text-amount-slider', 'animAmountText', 'anim-text-amount-val');
-  wireSlider('anim-custom-density-amount-slider', 'animAmountCustomDensity', 'anim-custom-density-amount-val');
-  wireSlider('anim-custom-size-amount-slider', 'animAmountCustomSize', 'anim-custom-size-amount-val');
-  wireSlider('anim-seed-amount-slider', 'animAmountSeed', 'anim-seed-amount-val');
-  wireSlider('anim-palette-amount-slider', 'animAmountPalette', 'anim-palette-amount-val');
-  wireSlider('anim-bg-amount-slider', 'animAmountBg', 'anim-bg-amount-val');
-  wireSlider('anim-mode-amount-slider', 'animAmountMode', 'anim-mode-amount-val');
-  wireSlider('anim-effects-amount-slider', 'animAmountEffects', 'anim-effects-amount-val');
-
-  // Animation targets wiring
-  const bindAnimToggle = (id, stateKey) => {
-    const el = document.getElementById(id);
-    if (el) {
-      el.addEventListener('change', e => {
-        state[stateKey] = e.target.checked;
-        
-        // Find corresponding state and animBases key
-        const baseKey = stateKey.replace('anim', '').replace(/^./, c => c.toLowerCase());
-        let paramKey = baseKey;
-        if (baseKey === 'text') paramKey = 'textAmount';
-        if (baseKey === 'customDensity') paramKey = 'customTextAmount';
-        if (baseKey === 'customSize') paramKey = 'customTextSize';
-        
-        if (e.target.checked) {
-          // If toggled ON, lock animBases to current slider/state value
-          if (animBases.hasOwnProperty(paramKey)) {
-            animBases[paramKey] = state[paramKey];
-          }
-        } else {
-          // If toggled OFF, reset state to base slider/state value and redraw
-          if (animBases.hasOwnProperty(paramKey)) {
-            state[paramKey] = animBases[paramKey];
-            
-            // Map combined detail back to complexity and density
-            if (paramKey === 'detail') {
-              state.complexity = Math.round(state.detail * 40 / 100);
-              state.density = Math.round(state.detail * 15 / 100);
-            }
-            
-            // Sync slider UI value & label
-            const sliderId = id.replace('anim-', '') + '-slider';
-            const sliderEl = document.getElementById(sliderId);
-            if (sliderEl) sliderEl.value = state[paramKey];
-            
-            const valId = id.replace('anim-', '') + '-val';
-            const valEl = document.getElementById(valId);
-            if (valEl) valEl.textContent = state[paramKey];
-          }
-          if (!state.animating && !state.isBatchUpdating) draw();
-        }
-      });
-    }
-  };
-
-  bindAnimToggle('anim-detail', 'animDetail');
-  bindAnimToggle('anim-weight', 'animWeight');
-  bindAnimToggle('anim-chaos', 'animChaos');
-  bindAnimToggle('anim-text', 'animText');
-  bindAnimToggle('anim-custom-density', 'animCustomDensity');
-  bindAnimToggle('anim-custom-size', 'animCustomSize');
-  bindAnimToggle('anim-seed', 'animSeed');
-  bindAnimToggle('anim-palette', 'animPalette');
-  bindAnimToggle('anim-bg', 'animBg');
-  bindAnimToggle('anim-mode', 'animMode');
-  bindAnimToggle('anim-effects', 'animEffects');
 
   // Custom text input
   const customTextInput = document.getElementById('custom-text-input');
@@ -5152,6 +7126,27 @@
   if (modeSelect) {
     modeSelect.addEventListener('change', () => {
       state.mode = modeSelect.value;
+
+      // Sensible defaults for franchise-like modes so they don't look flat with MONO palette
+      const modePaletteDefaults = { evangelion: 'evangelion', gundam: 'gundam', volumetric: 'ice' };
+      const targetPalette = modePaletteDefaults[state.mode];
+      if (targetPalette) {
+        state.palette = targetPalette;
+        document.querySelectorAll('.palette-btn').forEach(b => b.classList.toggle('active', b.dataset.palette === state.palette));
+        const PALETTES = ['mono', 'cyber', 'neon', 'blood', 'ice', 'gold', 'vaporwave', 'matrix', 'rust', 'gundam', 'evangelion'];
+        animBases.paletteIdx = PALETTES.indexOf(state.palette);
+        if (animBases.paletteIdx === -1) animBases.paletteIdx = 0;
+
+        // Darker background helps readability in these modes
+        if (state.bg === 'light') {
+          state.bg = 'black';
+          document.querySelectorAll('.bg-btn').forEach(b => b.classList.toggle('active', b.dataset.bg === state.bg));
+          const BACKGROUNDS = ['light', 'dark', 'paper', 'black', 'midnight', 'sepia', 'violet', 'jade', 'wine', 'steel', 'copper', 'slate'];
+          animBases.bgIdx = BACKGROUNDS.indexOf(state.bg);
+          if (animBases.bgIdx === -1) animBases.bgIdx = 0;
+        }
+      }
+
       document.getElementById('mode-badge').textContent = `MODO::${state.mode.toUpperCase()}`;
       document.getElementById('footer-info').textContent = `MODO::${state.mode.toUpperCase()}`;
       document.querySelectorAll('.preset-btn').forEach(b => b.classList.remove('active'));
@@ -5173,7 +7168,7 @@
   document.querySelectorAll('.bg-btn').forEach(btn => btn.addEventListener('click', () => {
     document.querySelectorAll('.bg-btn').forEach(b => b.classList.remove('active'));
     btn.classList.add('active'); state.bg = btn.dataset.bg;
-    const BACKGROUNDS = ['light', 'dark', 'paper', 'black'];
+    const BACKGROUNDS = ['light', 'dark', 'paper', 'black', 'midnight', 'sepia', 'violet', 'jade', 'wine', 'steel', 'copper', 'slate'];
     animBases.bgIdx = BACKGROUNDS.indexOf(state.bg);
     if (animBases.bgIdx === -1) animBases.bgIdx = 0;
     if (!state.animating) draw();
@@ -5185,51 +7180,98 @@
     btn.classList.add('active'); state.symmetry = btn.dataset.sym; if (!state.animating) draw();
   }));
 
-  // Waveform selector buttons
-  const waveButtons = document.querySelectorAll('.wave-btn:not(.speed-mod-wave-btn)');
-  waveButtons.forEach(btn => {
+  // LFO wave buttons
+  document.querySelectorAll('.lfo-wave-btn').forEach(btn => {
     btn.addEventListener('click', () => {
+      const lfoIdx = parseInt(btn.dataset.lfo);
       const wave = btn.dataset.wave;
-      const translations = {
-        'sine': 'SENOIDAL',
-        'triangle': 'TRIANGULAR',
-        'sawtooth': 'SIERRA',
-        'sawtooth-rev': 'SIERRA INVERTIDA',
-        'square': 'CUADRADA',
-        'random': 'ALEATORIO POR PASOS'
-      };
-      if (state.animWave === wave) {
-        state.animWave = 'sine';
-        waveButtons.forEach(b => b.classList.remove('active'));
-        document.getElementById('footer-info').textContent = `ONDA DE ANIMACIÓN: SENOIDAL (PREDETERMINADA)`;
-      } else {
-        state.animWave = wave;
-        waveButtons.forEach(b => b.classList.toggle('active', b.dataset.wave === wave));
-        const waveName = translations[wave] || wave.toUpperCase();
-        document.getElementById('footer-info').textContent = `ONDA DE ANIMACIÓN: ${waveName}`;
-      }
+      state.lfos[lfoIdx].wave = wave;
+      document.querySelectorAll(`.lfo-wave-btn[data-lfo="${lfoIdx}"]`).forEach(b =>
+        b.classList.toggle('active', b.dataset.wave === wave));
+      updateLfoJackStyle(lfoIdx);
     });
   });
 
-  // Speed modulation waveform selector buttons
-  const speedModWaveButtons = document.querySelectorAll('.speed-mod-wave-btn');
-  speedModWaveButtons.forEach(btn => {
-    btn.addEventListener('click', () => {
-      const wave = btn.dataset.wave;
-      const translations = {
-        'sine': 'SENOIDAL',
-        'triangle': 'TRIANGULAR',
-        'sawtooth': 'SIERRA',
-        'sawtooth-rev': 'SIERRA INVERTIDA',
-        'square': 'CUADRADA',
-        'random': 'ALEATORIO POR PASOS'
-      };
-      state.animSpeedModWave = wave;
-      speedModWaveButtons.forEach(b => b.classList.toggle('active', b.dataset.wave === wave));
-      const waveName = translations[wave] || wave.toUpperCase();
-      document.getElementById('footer-info').textContent = `ONDA DE MODULACIÓN VELOCIDAD: ${waveName}`;
+  // LFO rate sliders
+  document.querySelectorAll('.lfo-rate-slider').forEach(slider => {
+    slider.addEventListener('input', () => {
+      const lfoIdx = parseInt(slider.dataset.lfo);
+      const val = parseInt(slider.value);
+      state.lfos[lfoIdx].rate = val;
+      document.querySelector(`.lfo-rate-val[data-lfo="${lfoIdx}"]`).textContent = val;
+      updateLfoJackStyle(lfoIdx);
     });
   });
+
+  // Audio reactive controls
+  const btnAudioRx = document.getElementById('btn-audio-rx');
+  const audioMasterSendSlider = document.getElementById('audio-master-send-slider');
+  const audioSmoothSlider = document.getElementById('audio-smooth-slider');
+  const audioSourceSelect = document.getElementById('audio-source-select');
+  const audioDeviceSelect = document.getElementById('audio-device-select');
+
+  if (btnAudioRx) {
+    btnAudioRx.addEventListener('click', async () => {
+      if (state.audioRx.enabled) {
+        disableAudioReactiveInput();
+        document.getElementById('footer-info').textContent = 'AUDIO RX::OFF';
+      } else {
+        await enableAudioReactiveInput();
+      }
+    });
+  }
+
+  if (audioMasterSendSlider) {
+    audioMasterSendSlider.value = String(Math.round(state.audioRx.masterSend));
+    audioMasterSendSlider.addEventListener('input', () => {
+      state.audioRx.masterSend = parseInt(audioMasterSendSlider.value, 10);
+      updateAudioRxUi();
+    });
+  }
+
+  if (audioSmoothSlider) {
+    audioSmoothSlider.value = String(Math.round(state.audioRx.smooth * 100));
+    audioSmoothSlider.addEventListener('input', () => {
+      state.audioRx.smooth = Math.max(0, Math.min(0.98, parseInt(audioSmoothSlider.value, 10) / 100));
+      updateAudioRxUi();
+    });
+  }
+
+  if (audioSourceSelect) {
+    audioSourceSelect.value = state.audioRx.source;
+    audioSourceSelect.addEventListener('change', async () => {
+      state.audioRx.source = audioSourceSelect.value;
+      state.audioRx.deviceId = 'default'; // reset device so pickPreferredAudioInput re-selects for new source
+      await refreshAudioInputDevices();
+      updateAudioRxUi();
+      if (state.audioRx.source === 'loopback' && !state.audioRx.enabled) {
+        document.getElementById('footer-info').textContent = 'LOOPBACK::VB-CABLE/STEREO MIX O SELECCIONÁ DISPOSITIVO EN LISTA';
+      }
+      if (state.audioRx.enabled) {
+        await enableAudioReactiveInput();
+      }
+    });
+  }
+
+  if (audioDeviceSelect) {
+    audioDeviceSelect.addEventListener('change', async () => {
+      state.audioRx.deviceId = audioDeviceSelect.value;
+      updateAudioRxUi();
+      if (state.audioRx.enabled && state.audioRx.source !== 'loopback') {
+        await enableAudioReactiveInput();
+      }
+    });
+  }
+
+  if (navigator.mediaDevices && navigator.mediaDevices.addEventListener) {
+    navigator.mediaDevices.addEventListener('devicechange', () => {
+      refreshAudioInputDevices();
+    });
+  }
+
+  refreshAudioInputDevices();
+
+  updateAudioRxUi();
 
   // Effect toggles
   document.getElementById('fx-vignette').addEventListener('change', e => { state.vignette = e.target.checked; if (!state.animating) draw(); });
@@ -5240,15 +7282,209 @@
   document.getElementById('fx-static').addEventListener('change', e => { state.static = e.target.checked; if (!state.animating) draw(); });
 
   // Randomize everything function
-  function randomizeEverything() {
+  const LFO_COLORS = ['#00e5ff', '#ff4f81', '#bf5af2'];
+  const PATCH_GROUP_MAP = {
+    detail: 'core',
+    chaos: 'core',
+    weight: 'core',
+    effects: 'core',
+    text: 'core',
+    customDensity: 'core',
+    customSize: 'core',
+    lfo1Rate: 'lfo',
+    lfo2Rate: 'lfo',
+    lfo3Rate: 'lfo',
+    palette: 'scene',
+    bg: 'scene',
+    seed: 'scene',
+    mode: 'scene'
+  };
+  const patchGroupState = { core: true, scene: false, lfo: false };
+
+  function ensureBandPatchPorts() {
+    document.querySelectorAll('.patch-dest-row').forEach(row => {
+      const dest = row.dataset.dest;
+      const ports = row.querySelector('.patch-ports');
+      if (!dest || !ports) return;
+      for (let src = LFO_SOURCE_COUNT; src < MOD_SOURCE_COUNT; src++) {
+        if (ports.querySelector(`.patch-port[data-lfo="${src}"]`)) continue;
+        const btn = document.createElement('button');
+        btn.className = 'patch-port';
+        btn.dataset.lfo = String(src);
+        btn.dataset.dest = dest;
+        ports.appendChild(btn);
+      }
+    });
+  }
+
+  function updatePatchGroupUi() {
+    const counts = { core: 0, scene: 0 };
+    Object.entries(state.patches).forEach(([dest, depths]) => {
+      const group = PATCH_GROUP_MAP[dest] || 'core';
+      counts[group] += depths.filter(v => v !== null).length;
+    });
+
+    document.querySelectorAll('.patch-group').forEach(groupEl => {
+      const group = groupEl.dataset.group;
+      groupEl.classList.toggle('collapsed', !patchGroupState[group]);
+    });
+
+    document.querySelectorAll('.patch-group-toggle').forEach(btn => {
+      const group = btn.dataset.group;
+      if (!btn.dataset.baseLabel) btn.dataset.baseLabel = btn.textContent.trim();
+      const count = counts[group] || 0;
+      btn.classList.toggle('active', !!patchGroupState[group]);
+      btn.textContent = `${btn.dataset.baseLabel}${count > 0 ? ` (${count})` : ''}`;
+    });
+  }
+
+  function renderPatchBay() {
+    document.querySelectorAll('.patch-port').forEach(port => {
+      const lfoIdx = parseInt(port.dataset.lfo);
+      const dest = port.dataset.dest;
+      const depth = state.patches[dest][lfoIdx];
+      port.className = 'patch-port' + (depth !== null ? ` patched-${lfoIdx}` : '');
+    });
+    document.querySelectorAll('.dest-depth').forEach(depthDiv => {
+      const dest = depthDiv.dataset.dest;
+      depthDiv.innerHTML = '';
+      state.patches[dest].forEach((depth, lfoIdx) => {
+        if (depth === null) return;
+        const pct = depth + '%';
+        const ctrl = document.createElement('div');
+        ctrl.className = 'depth-ctrl';
+        ctrl.dataset.lfo = lfoIdx;
+        ctrl.dataset.dest = dest;
+        ctrl.style.setProperty('--pct', pct);
+        ctrl.innerHTML = `
+          <span class="depth-lfo-dot"></span>
+          <input type="range" class="depth-slider" min="0" max="100" value="${depth}" style="--pct:${pct}">
+          <span class="depth-val">${depth}</span>
+        `;
+        const slider = ctrl.querySelector('.depth-slider');
+        slider.addEventListener('input', e => {
+          const v = parseInt(e.target.value);
+          state.patches[dest][lfoIdx] = v;
+          ctrl.style.setProperty('--pct', v + '%');
+          slider.style.setProperty('--pct', v + '%');
+          ctrl.querySelector('.depth-val').textContent = v;
+        });
+        depthDiv.appendChild(ctrl);
+      });
+    });
+    // Update LFO jack glow
+    [0, 1, 2].forEach(updateLfoJackStyle);
+    updatePatchGroupUi();
+  }
+
+  function getEffectiveLfoRate(baseRate, lfoIdx) {
+    if (state.animating && Array.isArray(state.liveLfoRates) && typeof state.liveLfoRates[lfoIdx] === 'number') {
+      return Math.max(1, Math.min(160, state.liveLfoRates[lfoIdx]));
+    }
+    return Math.max(1, Math.min(160, baseRate));
+  }
+
+  function updateLfoJackStyle(lfoIdx) {
+    const module = document.querySelector(`.lfo-module[data-lfo="${lfoIdx}"]`);
+    if (!module) return;
+    const hasPatches = Object.values(state.patches).some(p => p[lfoIdx] !== null);
+    module.classList.toggle('has-patches', hasPatches);
+    const effectiveRate = getEffectiveLfoRate(state.lfos[lfoIdx].rate, lfoIdx);
+    const period = (Math.max(0.18, 2.0 / (effectiveRate / 15))).toFixed(2) + 's';
+    module.style.setProperty('--lfo-period', period);
+  }
+
+  ensureBandPatchPorts();
+
+  // Patch port click handler
+  document.querySelectorAll('.patch-port').forEach(port => {
+    port.addEventListener('click', () => {
+      const lfoIdx = parseInt(port.dataset.lfo);
+      const dest = port.dataset.dest;
+      const group = PATCH_GROUP_MAP[dest] || 'core';
+      if (state.patches[dest][lfoIdx] === null) {
+        state.patches[dest][lfoIdx] = 80; // default depth
+        patchGroupState[group] = true;
+      } else {
+        state.patches[dest][lfoIdx] = null;
+        // Reset state value when fully unpatching this dest
+        if (!state.animating && state.patches[dest].every(v => v === null)) {
+          const baseMap = {
+            detail: ['detail', 'detail'],
+            weight: ['weight', 'weight'],
+            chaos: ['chaos', 'chaos'],
+            text: ['textAmount', 'textAmount'],
+            customDensity: ['customTextAmount', 'customTextAmount'],
+            customSize: ['customTextSize', 'customTextSize'],
+            lfo1Rate: ['lfos', 0],
+            lfo2Rate: ['lfos', 1],
+            lfo3Rate: ['lfos', 2]
+          };
+          const keys = baseMap[dest];
+          if (keys) {
+            if (keys[0] === 'lfos') {
+              const i = keys[1];
+              const slider = document.querySelector(`.lfo-rate-slider[data-lfo="${i}"]`);
+              if (slider) slider.value = state.lfos[i].rate;
+              const valEl = document.querySelector(`.lfo-rate-val[data-lfo="${i}"]`);
+              if (valEl) valEl.textContent = state.lfos[i].rate;
+            } else {
+              state[keys[0]] = animBases[keys[1]];
+            }
+          }
+        }
+      }
+      renderPatchBay();
+      if (!state.animating) draw();
+    });
+  });
+
+  // Patch bay group toggles
+  document.querySelectorAll('.patch-group-toggle').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const group = btn.dataset.group;
+      patchGroupState[group] = !patchGroupState[group];
+      updatePatchGroupUi();
+    });
+  });
+
+  // Initialize patch bay UI
+  renderPatchBay();
+
+  function randomizeEverything(intensityProfile = null, options = {}) {
+    const useFade = !!options.useFade;
+    const fallbackProfile = {
+      key: 'medium',
+      label: 'RND::MED',
+      detail: [30, 75],
+      weight: [0, 79],
+      chaos: [0, 59],
+      text: [0, 39],
+      customDensity: [0, 25],
+      customSize: [15, 74],
+      customOpacity: [30, 80],
+      speed: [10, 39],
+      patches: [2, 4],
+      cheapFxMax: 1
+    };
+    const profile = intensityProfile || fallbackProfile;
+    const randInt = (min, max) => Math.floor(Math.random() * (max - min + 1)) + min;
+    const clamp = (v, min, max) => Math.max(min, Math.min(max, v));
+
     state.isBatchUpdating = true;
     // 1. Seed
-    state.seed = Math.floor(Math.random() * 99999999);
-    document.getElementById('seed-input').value = state.seed;
+    const nextSeed = profile.lockSeed ? state.seed : Math.floor(Math.random() * 99999999);
+    if (useFade && state.animating) {
+      triggerFade(nextSeed);
+    } else {
+      setSeedValue(nextSeed, { syncInput: true, syncBase: true });
+    }
 
-    // 2. Mode
-    const modes = ['vectorheart','circuit','hud','glitch','blueprint','chaos','flow','sacred','glyph','gundam','evangelion'];
-    state.mode = modes[Math.floor(Math.random() * modes.length)];
+    // 2. Mode (soft random keeps current mode)
+    const modes = ['vectorheart','circuit','hud','glitch','blueprint','chaos','flow','sacred','glyph','volumetric','gundam','evangelion'];
+    if (!profile.lockMode && !isBlockLocked('mode')) {
+      state.mode = modes[Math.floor(Math.random() * modes.length)];
+    }
     const modeSelect = document.getElementById('mode-select');
     if (modeSelect) modeSelect.value = state.mode;
     const modeBadge = document.getElementById('mode-badge');
@@ -5256,21 +7492,27 @@
 
     // 3. Symmetry
     const symmetries = ['none', 'mirror-y', 'mirror-x', '4way'];
-    state.symmetry = symmetries[Math.floor(Math.random() * symmetries.length)];
+    if (!profile.lockSymmetry && !isBlockLocked('symmetry')) {
+      state.symmetry = symmetries[Math.floor(Math.random() * symmetries.length)];
+    }
     document.querySelectorAll('.sym-btn').forEach(btn => {
       btn.classList.toggle('active', btn.dataset.sym === state.symmetry);
     });
 
     // 4. Palette
     const palettes = ['mono','cyber','neon','blood','ice','gold','vaporwave','matrix','rust','gundam','evangelion'];
-    state.palette = palettes[Math.floor(Math.random() * palettes.length)];
+    if (!profile.lockPalette && !isBlockLocked('palette')) {
+      state.palette = palettes[Math.floor(Math.random() * palettes.length)];
+    }
     document.querySelectorAll('.palette-btn').forEach(btn => {
       btn.classList.toggle('active', btn.dataset.palette === state.palette);
     });
 
     // 5. Background
-    const bgs = ['light','dark','paper','black'];
-    state.bg = bgs[Math.floor(Math.random() * bgs.length)];
+    const bgs = ['light','dark','paper','black','midnight','sepia'];
+    if (!profile.lockBg && !isBlockLocked('bg')) {
+      state.bg = bgs[Math.floor(Math.random() * bgs.length)];
+    }
     document.querySelectorAll('.bg-btn').forEach(btn => {
       btn.classList.toggle('active', btn.dataset.bg === state.bg);
     });
@@ -5284,35 +7526,39 @@
     };
 
     // 6. Parameters (Smart performance-balanced limits)
-    const detailVal = Math.floor(Math.random() * 46) + 30; // 30-75 detail (performance cap to prevent rendering freeze)
-    const weightVal = Math.floor(Math.random() * 80); // 0-79
-    const chaosVal = Math.floor(Math.random() * 60); // 0-59 (too much chaos causes path draw lags)
-    const textAmountVal = Math.floor(Math.random() * 40); // 0-39
+    if (!profile.lockMode && !isBlockLocked('params')) {
+      const detailVal = Math.floor(Math.random() * (profile.detail[1] - profile.detail[0] + 1)) + profile.detail[0];
+      const weightVal = Math.floor(Math.random() * (profile.weight[1] - profile.weight[0] + 1)) + profile.weight[0];
+      const chaosVal = Math.floor(Math.random() * (profile.chaos[1] - profile.chaos[0] + 1)) + profile.chaos[0];
+      const textAmountVal = Math.floor(Math.random() * (profile.text[1] - profile.text[0] + 1)) + profile.text[0];
 
-    state.detail = detailVal;
-    state.complexity = Math.round(detailVal * 40 / 100);
-    state.density = Math.round(detailVal * 15 / 100);
-    state.weight = weightVal;
-    state.chaos = chaosVal;
-    state.textAmount = textAmountVal;
+      state.detail = detailVal;
+      state.complexity = Math.round(detailVal * 40 / 100);
+      state.density = Math.round(detailVal * 15 / 100);
+      state.weight = weightVal;
+      state.chaos = chaosVal;
+      state.textAmount = textAmountVal;
 
-    syncSlider('detail-slider', detailVal);
-    syncSlider('weight-slider', weightVal);
-    syncSlider('chaos-slider', chaosVal);
-    syncSlider('text-slider', textAmountVal);
+      syncSlider('detail-slider', detailVal);
+      syncSlider('weight-slider', weightVal);
+      syncSlider('chaos-slider', chaosVal);
+      syncSlider('text-slider', textAmountVal);
+    }
 
     // 7. Custom Text settings (Performance safe)
-    const customTextAmountVal = Math.floor(Math.random() * 25); // Limit text elements
-    const customTextSizeVal = Math.floor(Math.random() * 60) + 15; // 15-74 size
-    const customTextOpacityVal = Math.floor((Math.random() * 50 + 30) / 5) * 5; // 30-80% opacity
+    if (!isBlockLocked('text')) {
+      const customTextAmountVal = Math.floor(Math.random() * (profile.customDensity[1] - profile.customDensity[0] + 1)) + profile.customDensity[0];
+      const customTextSizeVal = Math.floor(Math.random() * (profile.customSize[1] - profile.customSize[0] + 1)) + profile.customSize[0];
+      const customTextOpacityVal = Math.floor((Math.random() * (profile.customOpacity[1] - profile.customOpacity[0]) + profile.customOpacity[0]) / 5) * 5;
 
-    state.customTextAmount = customTextAmountVal;
-    state.customTextSize = customTextSizeVal;
-    state.customTextOpacity = customTextOpacityVal;
+      state.customTextAmount = customTextAmountVal;
+      state.customTextSize = customTextSizeVal;
+      state.customTextOpacity = customTextOpacityVal;
 
-    syncSlider('custom-text-density-slider', customTextAmountVal);
-    syncSlider('custom-text-size-slider', customTextSizeVal);
-    syncSlider('custom-text-opacity-slider', customTextOpacityVal);
+      syncSlider('custom-text-density-slider', customTextAmountVal);
+      syncSlider('custom-text-size-slider', customTextSizeVal);
+      syncSlider('custom-text-opacity-slider', customTextOpacityVal);
+    }
 
     const fonts = [
       "'Share Tech Mono', monospace",
@@ -5332,7 +7578,9 @@
       "'Courier New', monospace",
       "Arial, sans-serif"
     ];
-    state.customFont = fonts[Math.floor(Math.random() * fonts.length)];
+    if (!profile.lockTypography && !isBlockLocked('text')) {
+      state.customFont = fonts[Math.floor(Math.random() * fonts.length)];
+    }
     const fontSelect = document.getElementById('custom-font-select');
     if (fontSelect) fontSelect.value = state.customFont;
 
@@ -5342,14 +7590,18 @@
       { value: '400', label: '400 - REGULAR' },
       { value: '700', label: '700 - NEGRITA' }
     ];
-    const pickedWeight = supportedWeights[Math.floor(Math.random() * supportedWeights.length)].value;
-    state.customFontWeight = pickedWeight;
+    if (!profile.lockTypography && !isBlockLocked('text')) {
+      const pickedWeight = supportedWeights[Math.floor(Math.random() * supportedWeights.length)].value;
+      state.customFontWeight = pickedWeight;
+    }
     const weightSelect = document.getElementById('custom-weight-select');
     if (weightSelect) weightSelect.value = state.customFontWeight;
 
     // Custom Color
     const colors = ['auto', 'pure-black', 'white-out', 'matrix-green', 'neon-cyan', 'hot-pink', 'acid-lime', 'laser-purple', 'solar-orange', 'neon-yellow', 'cyan-glow', 'neon-mint', 'magenta-fade', 'golden-shine', 'blood-red', 'cyber-sunset', 'toxic-waste', 'deep-space', 'electric-indigo', 'holo-foil', 'lava-lamp', 'chrome-fade', 'carbon-metal', 'rainbow-fade'];
-    state.customTextColor = colors[Math.floor(Math.random() * colors.length)];
+    if (!profile.lockTextColor && !isBlockLocked('text')) {
+      state.customTextColor = colors[Math.floor(Math.random() * colors.length)];
+    }
     
     // Sync Custom color trigger UI
     const selectedSquare = document.getElementById('selected-color-square');
@@ -5362,88 +7614,89 @@
 
     // 8. Effects (Only lightweight effects in random to avoid GPU/CPU filter bottleneck)
     const effects = ['vignette', 'grain', 'scanlines', 'chromatic', 'glitch', 'static'];
-    effects.forEach(fx => {
-      state[fx] = false;
-      const el = document.getElementById(`fx-${fx}`);
-      if (el) el.checked = false;
-    });
+    if (!isBlockLocked('effects')) {
+      effects.forEach(fx => {
+        state[fx] = false;
+        const el = document.getElementById(`fx-${fx}`);
+        if (el) el.checked = false;
+      });
 
-    // Only allow cheap effects in random (glitch/chromatic/static use expensive SVG filters)
-    const cheapEffects = ['vignette', 'grain', 'scanlines'];
-    const numActiveFx = Math.floor(Math.random() * 2); // 0 or 1 cheap effect
-    const shuffledFx = [...cheapEffects].sort(() => 0.5 - Math.random());
-    for (let i = 0; i < numActiveFx; i++) {
-      const fx = shuffledFx[i];
-      state[fx] = true;
-      const el = document.getElementById(`fx-${fx}`);
-      if (el) el.checked = true;
-    }
-
-    // Scanlines canvas class sync
-    const canvasScanlines = document.querySelector('.canvas-scanlines');
-    if (canvasScanlines) {
-      canvasScanlines.classList.toggle('hidden', !state.scanlines);
-    }
-
-    // 9. Animation settings
-    const speedVal = Math.floor(Math.random() * 30) + 10;
-    const animNoiseVal = Math.floor(Math.random() * 50);
-    const speedModVal = Math.floor(Math.random() * 30); // 0-29 speed modulation
-    
-    state.animSpeed = speedVal;
-    state.animNoise = animNoiseVal;
-    state.animSpeedMod = speedModVal;
-
-    syncSlider('speed-slider', speedVal);
-    syncSlider('anim-noise-slider', animNoiseVal);
-    syncSlider('speed-mod-slider', speedModVal);
-
-    // Wave shape
-    const waves = ['triangle', 'sawtooth', 'sawtooth-rev', 'square', 'random'];
-    state.animWave = waves[Math.floor(Math.random() * waves.length)];
-    document.querySelectorAll('.wave-btn:not(.speed-mod-wave-btn)').forEach(btn => {
-      btn.classList.toggle('active', btn.dataset.wave === state.animWave);
-    });
-
-    // Speed modulation wave shape
-    const speedModWaves = ['triangle', 'sawtooth', 'sawtooth-rev', 'square', 'random'];
-    state.animSpeedModWave = speedModWaves[Math.floor(Math.random() * speedModWaves.length)];
-    document.querySelectorAll('.speed-mod-wave-btn').forEach(btn => {
-      btn.classList.toggle('active', btn.dataset.wave === state.animSpeedModWave);
-    });
-
-    // Anim sliders and checkboxes (Smart Cap: at most 3 LFOs active to prevent heavy frame calculations)
-    const animControls = ['mode', 'detail', 'weight', 'chaos', 'text', 'custom-density', 'custom-size', 'seed', 'palette', 'bg', 'effects'];
-    animControls.forEach(ctrl => {
-      const chkEl = document.getElementById(`anim-${ctrl}`);
-      if (chkEl) {
-        chkEl.checked = false;
-        chkEl.dispatchEvent(new Event('change'));
+      // Only allow cheap effects in random (glitch/chromatic/static use expensive SVG filters)
+      const cheapEffects = ['vignette', 'grain', 'scanlines'];
+      const numActiveFx = Math.floor(Math.random() * (Math.max(0, profile.cheapFxMax) + 1));
+      const shuffledFx = [...cheapEffects].sort(() => 0.5 - Math.random());
+      for (let i = 0; i < numActiveFx; i++) {
+        const fx = shuffledFx[i];
+        state[fx] = true;
+        const el = document.getElementById(`fx-${fx}`);
+        if (el) el.checked = true;
       }
-    });
 
-    const numActiveLFOs = Math.floor(Math.random() * 3) + 1; // 1 to 3 active LFOs
-    const shuffledLFOs = [...animControls].sort(() => 0.5 - Math.random());
-    for (let i = 0; i < numActiveLFOs; i++) {
-      const ctrl = shuffledLFOs[i];
-      const chkEl = document.getElementById(`anim-${ctrl}`);
-      if (chkEl) {
-        chkEl.checked = true;
-        chkEl.dispatchEvent(new Event('change'));
+      // Scanlines canvas class sync
+      const canvasScanlines = document.querySelector('.canvas-scanlines');
+      if (canvasScanlines) {
+        canvasScanlines.classList.toggle('hidden', !state.scanlines);
       }
     }
 
-    // Set amounts for all LFOs
-    animControls.forEach(ctrl => {
-      const camel = ctrl.split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join('');
-      const stateAmountProp = 'animAmount' + camel;
-      const amountVal = Math.floor(Math.random() * 80) + 20; // 20-99%
-      state[stateAmountProp] = amountVal;
-      const sldEl = document.getElementById(`anim-${ctrl}-amount-slider`);
-      if (sldEl) sldEl.value = amountVal;
-      const valEl = document.getElementById(`anim-${ctrl}-amount-val`);
-      if (valEl) valEl.textContent = amountVal;
+    // 9. Eurorack LFO settings
+    const waves = ['sine', 'triangle', 'sawtooth', 'square', 'random'];
+    if (!isBlockLocked('lfo')) {
+      state.lfos.forEach((lfo, i) => {
+        if (!profile.keepLfoWave) {
+          lfo.wave = waves[Math.floor(Math.random() * waves.length)];
+        }
+        if (typeof profile.lfoRateJitter === 'number') {
+          lfo.rate = clamp(lfo.rate + randInt(-profile.lfoRateJitter, profile.lfoRateJitter), 1, 100);
+        } else {
+          lfo.rate = Math.floor(Math.random() * 50) + 5;
+        }
+        const slider = document.querySelector(`.lfo-rate-slider[data-lfo="${i}"]`);
+        if (slider) slider.value = lfo.rate;
+        const valEl = document.querySelector(`.lfo-rate-val[data-lfo="${i}"]`);
+        if (valEl) valEl.textContent = lfo.rate;
+        document.querySelectorAll(`.lfo-wave-btn[data-lfo="${i}"]`).forEach(b =>
+          b.classList.toggle('active', b.dataset.wave === lfo.wave));
+      });
+    }
+
+    // Clear all patches, then randomly connect 2-4
+    const allDests = Object.keys(state.patches);
+    const allowedDests = allDests.filter(dest => {
+      const blockKey = getDestBlockKey(dest);
+      return blockKey ? !isBlockLocked(blockKey) : true;
     });
+    if (profile.preservePatches) {
+      const patchJitter = typeof profile.patchJitter === 'number' ? profile.patchJitter : 10;
+      let hasAnyPatch = false;
+      allowedDests.forEach(dest => {
+        for (let l = 0; l < MOD_SOURCE_COUNT; l++) {
+          const depth = state.patches[dest][l];
+          if (depth === null) continue;
+          hasAnyPatch = true;
+          state.patches[dest][l] = clamp(depth + randInt(-patchJitter, patchJitter), 10, 100);
+        }
+      });
+      if (!hasAnyPatch) {
+        const d = allowedDests[Math.floor(Math.random() * allowedDests.length)];
+        const l = Math.floor(Math.random() * MOD_SOURCE_COUNT);
+        state.patches[d][l] = randInt(50, 80);
+      }
+    } else {
+      allDests.forEach(k => { state.patches[k] = new Array(MOD_SOURCE_COUNT).fill(null); });
+      const allCombos = [];
+      for (let l = 0; l < MOD_SOURCE_COUNT; l++) for (const d of allowedDests) allCombos.push([l, d]);
+      const shuffled = allCombos.sort(() => 0.5 - Math.random());
+      const numPatches = Math.floor(Math.random() * (profile.patches[1] - profile.patches[0] + 1)) + profile.patches[0];
+      for (let i = 0; i < numPatches; i++) {
+        const [l, d] = shuffled[i];
+        state.patches[d][l] = Math.floor(Math.random() * 60) + 40; // 40-100%
+      }
+    }
+    if (profile.lockMode || isBlockLocked('mode')) {
+      state.patches.mode = new Array(MOD_SOURCE_COUNT).fill(null);
+    }
+    renderPatchBay();
 
     // Sync animBases with the new randomized values
     animBases.detail = state.detail;
@@ -5452,31 +7705,316 @@
     animBases.textAmount = state.textAmount;
     animBases.customTextAmount = state.customTextAmount;
     animBases.customTextSize = state.customTextSize;
+    animBases.seed = state.seed;
 
     const PALETTES = ['mono', 'cyber', 'neon', 'blood', 'ice', 'gold', 'vaporwave', 'matrix', 'rust', 'gundam', 'evangelion'];
     animBases.paletteIdx = PALETTES.indexOf(state.palette);
     if (animBases.paletteIdx === -1) animBases.paletteIdx = 0;
 
-    const BACKGROUNDS = ['light', 'dark', 'paper', 'black'];
+    const BACKGROUNDS = ['light', 'dark', 'paper', 'black', 'midnight', 'sepia', 'violet', 'jade', 'wine', 'steel', 'copper', 'slate'];
     animBases.bgIdx = BACKGROUNDS.indexOf(state.bg);
     if (animBases.bgIdx === -1) animBases.bgIdx = 0;
 
-    const MODES = ['vectorheart','circuit','hud','glitch','blueprint','chaos','flow','sacred','glyph','gundam','evangelion'];
+    const MODES = ['vectorheart','circuit','hud','glitch','blueprint','chaos','flow','sacred','glyph','volumetric','gundam','evangelion'];
     animBases.modeIdx = MODES.indexOf(state.mode);
     if (animBases.modeIdx === -1) animBases.modeIdx = 0;
 
     // Draw the new design!
     state.isBatchUpdating = false;
     draw(0, true);
-    document.getElementById('footer-info').textContent = `RANDOMIZADO::${state.seed}`;
+    document.getElementById('footer-info').textContent = `RANDOMIZADO::${state.seed} (${profile.label})`;
   }
 
   // Global randomizer click event
   const btnRandomAll = document.getElementById('btn-random-all');
+  const btnRandomLevel = document.getElementById('btn-random-level');
+  const btnAutopilot = document.getElementById('btn-autopilot');
+  const btnAutopilotLevel = document.getElementById('btn-autopilot-level');
+  const RANDOM_LEVELS = [
+    {
+      key: 'soft',
+      label: 'RND::SUAVE',
+      lockMode: true,
+      detail: [28, 58],
+      weight: [0, 58],
+      chaos: [0, 30],
+      text: [0, 25],
+      customDensity: [0, 14],
+      customSize: [14, 54],
+      customOpacity: [35, 75],
+      speed: [8, 24],
+      patches: [1, 3],
+      cheapFxMax: 1
+    },
+    {
+      key: 'medium',
+      label: 'RND::MED',
+      lockMode: false,
+      detail: [30, 75],
+      weight: [0, 79],
+      chaos: [0, 59],
+      text: [0, 39],
+      customDensity: [0, 25],
+      customSize: [15, 74],
+      customOpacity: [30, 80],
+      speed: [10, 39],
+      patches: [2, 4],
+      cheapFxMax: 1
+    },
+    {
+      key: 'aggressive',
+      label: 'RND::AGRO',
+      lockMode: false,
+      detail: [38, 85],
+      weight: [10, 95],
+      chaos: [10, 78],
+      text: [8, 58],
+      customDensity: [5, 34],
+      customSize: [16, 95],
+      customOpacity: [35, 90],
+      speed: [18, 55],
+      patches: [3, 5],
+      cheapFxMax: 2
+    }
+  ];
+  const AUTOPILOT_LEVELS = [
+    { key: 'soft', label: 'AP::SUAVE', intervalMs: 5200 },
+    { key: 'medium', label: 'AP::MED', intervalMs: 3800 },
+    { key: 'aggressive', label: 'AP::AGRO', intervalMs: 2400 }
+  ];
+  const AUTOPILOT_SOFT_PROFILE = {
+    key: 'ap-soft',
+    label: 'AP::SUAVE',
+    lockSeed: true,
+    lockMode: true,
+    lockSymmetry: true,
+    lockPalette: true,
+    lockBg: true,
+    lockTypography: true,
+    lockTextColor: true,
+    detail: [46, 58],
+    weight: [8, 24],
+    chaos: [0, 14],
+    text: [0, 10],
+    customDensity: [0, 8],
+    customSize: [16, 30],
+    customOpacity: [60, 80],
+    cheapFxMax: 0,
+    patches: [1, 2],
+    preservePatches: true,
+    patchJitter: 8,
+    keepLfoWave: true,
+    lfoRateJitter: 3
+  };
+  let randomLevelIdx = 1;
+  let autopilotLevelIdx = 1;
+  let autopilotEnabled = false;
+  let autopilotTimer = null;
   if (btnRandomAll) {
     let randomizeInProgress = false;
     let randomIconTimer = null;
     let randomizeCooldownUntil = 0;
+    let autopilotTick = 0;
+
+    const AUTOPILOT_MUTATION = {
+      soft: {
+        detailStep: 2,
+        weightStep: 2,
+        chaosStep: 2,
+        textStep: 1,
+        densityStep: 1,
+        sizeStep: 1,
+        opacityStep: 2,
+        lfoRateStep: 1,
+        lfoWaveChance: 0.02,
+        paletteChance: 0.015,
+        bgChance: 0.015,
+        modeChance: 0.0,
+        seedChance: 0.0,
+        patchChangeChance: 0.12,
+        effectToggleChance: 0.05,
+        allowModeChange: false
+      },
+      medium: {
+        detailStep: 4,
+        weightStep: 4,
+        chaosStep: 4,
+        textStep: 3,
+        densityStep: 2,
+        sizeStep: 2,
+        opacityStep: 4,
+        lfoRateStep: 2,
+        lfoWaveChance: 0.06,
+        paletteChance: 0.05,
+        bgChance: 0.05,
+        modeChance: 0.03,
+        seedChance: 0.02,
+        patchChangeChance: 0.2,
+        effectToggleChance: 0.09,
+        allowModeChange: true
+      },
+      aggressive: {
+        detailStep: 7,
+        weightStep: 7,
+        chaosStep: 7,
+        textStep: 5,
+        densityStep: 4,
+        sizeStep: 4,
+        opacityStep: 7,
+        lfoRateStep: 4,
+        lfoWaveChance: 0.12,
+        paletteChance: 0.1,
+        bgChance: 0.1,
+        modeChance: 0.08,
+        seedChance: 0.05,
+        patchChangeChance: 0.34,
+        effectToggleChance: 0.15,
+        allowModeChange: true
+      }
+    };
+
+    const clamp = (v, min, max) => Math.max(min, Math.min(max, v));
+    const randInt = (min, max) => Math.floor(Math.random() * (max - min + 1)) + min;
+    const pickOne = arr => arr[Math.floor(Math.random() * arr.length)];
+
+    const setSliderUi = (id, value) => {
+      const el = document.getElementById(id);
+      if (el) el.value = String(value);
+      const valEl = document.getElementById(id.replace('-slider', '-val'));
+      if (valEl) valEl.textContent = String(value);
+    };
+
+    const syncModePaletteBgUi = () => {
+      const modeSelect = document.getElementById('mode-select');
+      if (modeSelect) modeSelect.value = state.mode;
+      const modeBadge = document.getElementById('mode-badge');
+      if (modeBadge) modeBadge.textContent = `MODO::${state.mode.toUpperCase()}`;
+      document.querySelectorAll('.palette-btn').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.palette === state.palette);
+      });
+      document.querySelectorAll('.bg-btn').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.bg === state.bg);
+      });
+      document.querySelectorAll('.sym-btn').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.sym === state.symmetry);
+      });
+    };
+
+    const syncAnimBasesFromState = () => {
+      animBases.detail = state.detail;
+      animBases.weight = state.weight;
+      animBases.chaos = state.chaos;
+      animBases.textAmount = state.textAmount;
+      animBases.customTextAmount = state.customTextAmount;
+      animBases.customTextSize = state.customTextSize;
+      animBases.seed = state.seed;
+      animBases.paletteIdx = PRESET_PALETTES.indexOf(state.palette);
+      if (animBases.paletteIdx === -1) animBases.paletteIdx = 0;
+      animBases.bgIdx = PRESET_BACKGROUNDS.indexOf(state.bg);
+      if (animBases.bgIdx === -1) animBases.bgIdx = 0;
+      animBases.modeIdx = PRESET_MODES.indexOf(state.mode);
+      if (animBases.modeIdx === -1) animBases.modeIdx = 0;
+    };
+
+    const runAutopilotStep = (levelKey) => {
+      const profile = AUTOPILOT_MUTATION[levelKey] || AUTOPILOT_MUTATION.medium;
+      const waves = ['sine', 'triangle', 'sawtooth', 'square', 'random'];
+      autopilotTick += 1;
+
+      state.isBatchUpdating = true;
+
+      if (!isBlockLocked('params')) {
+        state.detail = clamp(state.detail + randInt(-profile.detailStep, profile.detailStep), 0, 100);
+        state.weight = clamp(state.weight + randInt(-profile.weightStep, profile.weightStep), 0, 100);
+        state.chaos = clamp(state.chaos + randInt(-profile.chaosStep, profile.chaosStep), 0, 100);
+        state.textAmount = clamp(state.textAmount + randInt(-profile.textStep, profile.textStep), 0, 100);
+        state.complexity = Math.round(state.detail * 40 / 100);
+        state.density = Math.round(state.detail * 15 / 100);
+
+        setSliderUi('detail-slider', state.detail);
+        setSliderUi('weight-slider', state.weight);
+        setSliderUi('chaos-slider', state.chaos);
+        setSliderUi('text-slider', state.textAmount);
+      }
+
+      if (!isBlockLocked('text')) {
+        state.customTextAmount = clamp(state.customTextAmount + randInt(-profile.densityStep, profile.densityStep), 0, 100);
+        state.customTextSize = clamp(state.customTextSize + randInt(-profile.sizeStep, profile.sizeStep), 4, 150);
+        state.customTextOpacity = clamp(state.customTextOpacity + randInt(-profile.opacityStep, profile.opacityStep), 0, 100);
+        setSliderUi('custom-text-density-slider', state.customTextAmount);
+        setSliderUi('custom-text-size-slider', state.customTextSize);
+        setSliderUi('custom-text-opacity-slider', state.customTextOpacity);
+      }
+
+      if (!isBlockLocked('lfo')) {
+        state.lfos.forEach((lfo, i) => {
+          lfo.rate = clamp(lfo.rate + randInt(-profile.lfoRateStep, profile.lfoRateStep), 1, 100);
+          if (Math.random() < profile.lfoWaveChance) lfo.wave = pickOne(waves);
+          const slider = document.querySelector(`.lfo-rate-slider[data-lfo="${i}"]`);
+          if (slider) slider.value = String(lfo.rate);
+          const valEl = document.querySelector(`.lfo-rate-val[data-lfo="${i}"]`);
+          if (valEl) valEl.textContent = String(lfo.rate);
+          document.querySelectorAll(`.lfo-wave-btn[data-lfo="${i}"]`).forEach(b => {
+            b.classList.toggle('active', b.dataset.wave === lfo.wave);
+          });
+        });
+      }
+
+      const canShiftScene = autopilotTick % 3 === 0;
+      const canShiftMode = autopilotTick % 6 === 0;
+      if (canShiftScene && Math.random() < profile.paletteChance && !isBlockLocked('palette')) state.palette = pickOne(PRESET_PALETTES);
+      if (canShiftScene && Math.random() < profile.bgChance && !isBlockLocked('bg')) state.bg = pickOne(PRESET_BACKGROUNDS);
+      if (canShiftMode && profile.allowModeChange && Math.random() < profile.modeChance && !isBlockLocked('mode')) state.mode = pickOne(PRESET_MODES);
+      if (Math.random() < profile.seedChance) {
+        const nextSeed = Math.floor(Math.random() * 99999999);
+        triggerFade(nextSeed);
+      }
+
+      if (!isBlockLocked('effects') && Math.random() < profile.effectToggleChance) {
+        const cheapFx = ['vignette', 'grain', 'scanlines'];
+        const fx = pickOne(cheapFx);
+        state[fx] = !state[fx];
+        const el = document.getElementById(`fx-${fx}`);
+        if (el) el.checked = !!state[fx];
+        if (fx === 'scanlines') {
+          document.querySelector('.canvas-scanlines')?.classList.toggle('hidden', !state.scanlines);
+        }
+      }
+
+      if (Math.random() < profile.patchChangeChance) {
+        const allowedDests = Object.keys(state.patches).filter(dest => {
+          const blockKey = getDestBlockKey(dest);
+          return blockKey ? !isBlockLocked(blockKey) : true;
+        });
+        if (allowedDests.length === 0) {
+          syncModePaletteBgUi();
+          renderPatchBay();
+          syncAnimBasesFromState();
+          state.isBatchUpdating = false;
+          if (!state.animating) draw(0, true);
+          document.getElementById('footer-info').textContent = `AUTOPILOT::ON (${AUTOPILOT_LEVELS[autopilotLevelIdx].label}) STEP ${autopilotTick}`;
+          return;
+        }
+        const dest = pickOne(allowedDests);
+        const src = randInt(0, MOD_SOURCE_COUNT - 1);
+        const current = state.patches[dest][src];
+        if (current === null) {
+          state.patches[dest][src] = randInt(35, 85);
+        } else if (Math.random() < 0.2) {
+          state.patches[dest][src] = null;
+        } else {
+          state.patches[dest][src] = clamp(current + randInt(-12, 12), 10, 100);
+        }
+      }
+
+      syncModePaletteBgUi();
+      renderPatchBay();
+      syncAnimBasesFromState();
+
+      state.isBatchUpdating = false;
+      if (!state.animating) draw(0, true);
+      document.getElementById('footer-info').textContent = `AUTOPILOT::ON (${AUTOPILOT_LEVELS[autopilotLevelIdx].label}) STEP ${autopilotTick}`;
+    };
 
     const animateRandomIcon = () => {
       const icon = btnRandomAll.querySelector('span');
@@ -5491,27 +8029,112 @@
       }, 420);
     };
 
-    const runRandomize = () => {
+    const runRandomize = (options = {}) => {
+      const useFade = !!options.useFade;
+      const profileOverride = options.profileOverride || null;
       const now = performance.now();
       if (now < randomizeCooldownUntil) return;
       randomizeInProgress = true;
       btnRandomAll.disabled = true;
+      if (btnAutopilot) btnAutopilot.disabled = true;
 
       requestAnimationFrame(() => {
         try {
-          randomizeEverything();
+          randomizeEverything(profileOverride || RANDOM_LEVELS[randomLevelIdx], { useFade });
           animateRandomIcon();
         } finally {
           randomizeCooldownUntil = performance.now() + 180;
           randomizeInProgress = false;
           btnRandomAll.disabled = false;
+          if (btnAutopilot) btnAutopilot.disabled = false;
         }
       });
     };
 
+    const syncRandomLevelUi = () => {
+      if (btnRandomLevel) {
+        btnRandomLevel.textContent = RANDOM_LEVELS[randomLevelIdx].label;
+      }
+    };
+
+    const stopAutopilot = () => {
+      autopilotEnabled = false;
+      if (autopilotTimer) {
+        clearInterval(autopilotTimer);
+        autopilotTimer = null;
+      }
+      if (btnAutopilot) {
+        btnAutopilot.classList.remove('active');
+        btnAutopilot.innerHTML = '<span>◆</span> AUTOPILOT';
+      }
+      document.getElementById('footer-info').textContent = `AUTOPILOT::OFF (${AUTOPILOT_LEVELS[autopilotLevelIdx].label})`;
+    };
+
+    const armAutopilotTimer = () => {
+      if (autopilotTimer) clearInterval(autopilotTimer);
+      const intervalMs = AUTOPILOT_LEVELS[autopilotLevelIdx].intervalMs;
+      autopilotTimer = setInterval(() => {
+        if (!autopilotEnabled) return;
+        const apLevel = AUTOPILOT_LEVELS[autopilotLevelIdx];
+        runAutopilotStep(apLevel.key);
+      }, intervalMs);
+    };
+
+    const syncAutopilotLevelUi = () => {
+      if (btnAutopilotLevel) {
+        btnAutopilotLevel.textContent = AUTOPILOT_LEVELS[autopilotLevelIdx].label;
+      }
+      if (autopilotEnabled) {
+        document.getElementById('footer-info').textContent = `AUTOPILOT::ON (${AUTOPILOT_LEVELS[autopilotLevelIdx].label})`;
+      }
+    };
+
+    const startAutopilot = () => {
+      autopilotEnabled = true;
+      autopilotTick = 0;
+      if (btnAutopilot) {
+        btnAutopilot.classList.add('active');
+        btnAutopilot.innerHTML = '<span>◆</span> AUTOPILOT';
+      }
+      if (!state.animating) startAnimation();
+      const apLevel = AUTOPILOT_LEVELS[autopilotLevelIdx];
+      runAutopilotStep(apLevel.key);
+      armAutopilotTimer();
+      document.getElementById('footer-info').textContent = `AUTOPILOT::ON (${AUTOPILOT_LEVELS[autopilotLevelIdx].label})`;
+    };
+
     btnRandomAll.addEventListener('click', () => {
       if (randomizeInProgress) return;
-      runRandomize();
+      runRandomize({ useFade: false });
+    });
+
+    if (btnRandomLevel) {
+      syncRandomLevelUi();
+      btnRandomLevel.addEventListener('click', () => {
+        randomLevelIdx = (randomLevelIdx + 1) % RANDOM_LEVELS.length;
+        syncRandomLevelUi();
+        document.getElementById('footer-info').textContent = `RANDOM::INTENSIDAD (${RANDOM_LEVELS[randomLevelIdx].label})`;
+      });
+    }
+
+    if (btnAutopilot) {
+      btnAutopilot.addEventListener('click', () => {
+        if (autopilotEnabled) stopAutopilot();
+        else startAutopilot();
+      });
+    }
+
+    if (btnAutopilotLevel) {
+      syncAutopilotLevelUi();
+      btnAutopilotLevel.addEventListener('click', () => {
+        autopilotLevelIdx = (autopilotLevelIdx + 1) % AUTOPILOT_LEVELS.length;
+        syncAutopilotLevelUi();
+        if (autopilotEnabled) armAutopilotTimer();
+      });
+    }
+
+    window.addEventListener('beforeunload', () => {
+      if (autopilotTimer) clearInterval(autopilotTimer);
     });
   }
 
@@ -5519,33 +8142,109 @@
   document.querySelectorAll('.preset-btn').forEach(btn => btn.addEventListener('click', () => applyPreset(btn.dataset.preset)));
 
   // Action buttons
+  document.getElementById('btn-init').addEventListener('click', applyInitState);
+
+  document.getElementById('btn-init').addEventListener('click', applyInitState);
+
+  document.getElementById('btn-rnd-lfo').addEventListener('click', () => {
+    const destKeys = Object.keys(state.patches).filter(dest => dest !== 'mode');
+    // Clear existing LFO patches first
+    destKeys.forEach(dest => {
+      for (let i = 0; i < LFO_SOURCE_COUNT; i++) state.patches[dest][i] = null;
+    });
+    // Each LFO source (L1/L2/L3) gets 1–3 random connections
+    for (let src = 0; src < LFO_SOURCE_COUNT; src++) {
+      const numConns = 1 + Math.floor(Math.random() * 3);
+      const shuffled = [...destKeys].sort(() => Math.random() - 0.5);
+      for (let j = 0; j < Math.min(numConns, shuffled.length); j++) {
+        const dest = shuffled[j];
+        state.patches[dest][src] = 30 + Math.floor(Math.random() * 61); // 30–90 depth
+        const row = document.querySelector(`.patch-dest-row[data-dest="${dest}"]`);
+        const group = row?.closest('.patch-group')?.dataset.group;
+        if (group) patchGroupState[group] = true;
+      }
+    }
+    renderPatchBay();
+    updatePatchGroupUi();
+    document.getElementById('footer-info').textContent = 'LFO::RANDOM PATCHES APLICADOS';
+  });
+
+  // Patch bay clear/random buttons
+  document.getElementById('btn-clr-lfo').addEventListener('click', () => {
+    Object.keys(state.patches).forEach(dest => {
+      for (let i = 0; i < LFO_SOURCE_COUNT; i++) state.patches[dest][i] = null;
+    });
+    renderPatchBay();
+    document.getElementById('footer-info').textContent = 'LFO::PATCHES LIMPIADOS';
+  });
+
+  document.getElementById('btn-clr-audio').addEventListener('click', () => {
+    Object.keys(state.patches).forEach(dest => {
+      for (let i = LFO_SOURCE_COUNT; i < MOD_SOURCE_COUNT; i++) state.patches[dest][i] = null;
+    });
+    renderPatchBay();
+    document.getElementById('footer-info').textContent = 'AUD::PATCHES LIMPIADOS';
+  });
+
+  document.getElementById('btn-rnd-audio').addEventListener('click', () => {
+    const destKeys = Object.keys(state.patches).filter(dest => dest !== 'mode');
+    // Clear existing band patches first
+    destKeys.forEach(dest => {
+      for (let i = LFO_SOURCE_COUNT; i < MOD_SOURCE_COUNT; i++) state.patches[dest][i] = null;
+    });
+    // Each band source (LOW/MID/HIGH) gets 1–3 random connections
+    for (let src = LFO_SOURCE_COUNT; src < MOD_SOURCE_COUNT; src++) {
+      const numConns = 1 + Math.floor(Math.random() * 3);
+      const shuffled = [...destKeys].sort(() => Math.random() - 0.5);
+      for (let j = 0; j < Math.min(numConns, shuffled.length); j++) {
+        const dest = shuffled[j];
+        state.patches[dest][src] = 40 + Math.floor(Math.random() * 51); // 40–90 depth
+        // Expand the group containing this dest so it’s visible
+        const row = document.querySelector(`.patch-dest-row[data-dest="${dest}"]`);
+        const group = row?.closest('.patch-group')?.dataset.group;
+        if (group) patchGroupState[group] = true;
+      }
+    }
+    renderPatchBay();
+    updatePatchGroupUi();
+    document.getElementById('footer-info').textContent = 'AUD::RANDOM PATCHES APLICADOS';
+  });
+
   document.getElementById('btn-generate').addEventListener('click', () => {
-    state.seed = Math.floor(Math.random() * 99999999);
-    document.getElementById('seed-input').value = state.seed;
+    setSeedValue(Math.floor(Math.random() * 99999999), { syncInput: true, syncBase: true });
     document.querySelectorAll('.preset-btn').forEach(b => b.classList.remove('active'));
     draw(0, true);
     document.getElementById('footer-info').textContent = `GENERADA::${state.seed}`;
   });
 
-  document.getElementById('btn-animate').addEventListener('click', () => {
-    if (state.animating) stopAnimation(); else startAnimation();
-  });
+  // (legacy full-clear kept for applyInitState — no UI button)
 
   document.getElementById('btn-download-fhd').addEventListener('click', () => downloadPNGAtSize('fhd'));
   document.getElementById('btn-download-2k').addEventListener('click', () => downloadPNGAtSize('2k'));
   document.getElementById('btn-download-4k').addEventListener('click', () => downloadPNGAtSize('4k'));
   document.getElementById('btn-download-svg').addEventListener('click', downloadSVG);
+  document.getElementById('btn-live-output').addEventListener('click', () => {
+    toggleLiveOutput();
+  });
   document.getElementById('btn-record-video').addEventListener('click', () => {
     startVideoRecording();
   });
 
+  document.getElementById('btn-stop-recording').addEventListener('click', () => {
+    if (recordingState.isRecording && recordingState.recorder &&
+        recordingState.recorder.state !== 'inactive') {
+      recordingState.recorder.stop();
+    }
+  });
+
   document.getElementById('seed-input').addEventListener('change', e => {
-    state.seed = parseInt(e.target.value) || 0; if (!state.animating) draw(0, true);
+    setSeedValue(parseInt(e.target.value, 10) || 0, { syncInput: true, syncBase: true });
+    if (!state.animating) draw(0, true);
   });
 
   document.getElementById('btn-random-seed').addEventListener('click', () => {
-    state.seed = Math.floor(Math.random() * 99999999);
-    document.getElementById('seed-input').value = state.seed; if (!state.animating) draw(0, true);
+    setSeedValue(Math.floor(Math.random() * 99999999), { syncInput: true, syncBase: true });
+    if (!state.animating) draw(0, true);
   });
 
   function toggleFullscreen() {
@@ -5565,15 +8264,18 @@
     if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') return;
     switch (e.key.toLowerCase()) {
       case 'g': document.getElementById('btn-generate').click(); break;
-      case 'a': document.getElementById('btn-animate').click(); break;
-      case 'd': document.getElementById('btn-download-svg').click(); break;
+      case 'r': document.getElementById('btn-random-all').click(); break;
+      case 'a': document.getElementById('btn-autopilot').click(); break;
       case 'f': toggleFullscreen(); break;
-      case ' ': e.preventDefault(); document.getElementById('btn-animate').click(); break;
       case '1': case '2': case '3': case '4': case '5': case '6': case '7': case '8': case '9': {
         const modes = ['vectorheart','circuit','hud','glitch','blueprint','chaos','flow','sacred','glyph'];
         const m = modes[parseInt(e.key) - 1]; if (m) { document.getElementById(`mode-${m}`)?.click(); } break;
       }
     }
+  });
+
+  window.addEventListener('beforeunload', () => {
+    teardownLiveOutput(true);
   });
 
   // Mobile Pagination Tab Setup
@@ -5677,9 +8379,13 @@
   document.getElementById('fx-chromatic').checked = state.chromatic;
   document.getElementById('fx-glitch').checked = state.glitch;
   document.getElementById('fx-static').checked = state.static;
-  waveButtons.forEach(b => b.classList.toggle('active', b.dataset.wave === state.animWave));
+  renderPatchBay();
   updateWeightSelector();
+  initMidiLearn();
+  initUserPresetControls();
   syncMobileTabs();
   resizeCanvas();
+  applyInitState();   // carga siempre en estado mínimo
+  startAnimation();   // animación siempre activa desde el inicio
 
 })();
