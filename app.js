@@ -5826,20 +5826,7 @@
       state.effectsIntensity = 1.0;
     }
 
-    if (state.audioRx.enabled && state.audioRx.ready) {
-      const audioMod = (lowDrive + midDrive + highDrive) / 3;
-      if (audioMod > 0.001) {
-        state.detail = Math.max(0, Math.min(100, state.detail + Math.round(midDrive * 10 + highDrive * 12)));
-        state.chaos = Math.max(0, Math.min(100, state.chaos + Math.round(midDrive * 9 + highDrive * 18)));
-        state.weight = Math.max(0, Math.min(100, state.weight + Math.round(lowDrive * 16 + midDrive * 5)));
-        state.effectsIntensity = Math.max(0, Math.min(2.0, state.effectsIntensity + lowDrive * 0.18 + midDrive * 0.22 + highDrive * 0.32));
-        state.complexity = Math.round(state.detail * 40 / 100);
-        state.density = Math.round(state.detail * 15 / 100);
-        document.getElementById('detail-val').textContent = state.detail;
-        document.getElementById('chaos-val').textContent = state.chaos;
-        document.getElementById('weight-val').textContent = state.weight;
-      }
-    }
+
 
     const t01 = (state.currentAnimSpeed - 1) / 33;
     let intervalMs = Math.round(1000 * Math.pow(0.1, t01));
