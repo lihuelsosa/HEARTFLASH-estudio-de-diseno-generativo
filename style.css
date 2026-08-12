@@ -584,39 +584,100 @@ body.midi-learning .midi-learn-target {
 .palette-btn:hover { border-color: var(--accent); color: var(--text); }
 .palette-btn.active { border-color: var(--accent); color: var(--accent); }
 .palette-swatch { width: 100%; height: 8px; border-radius: 1px; display: block; }
-.palette-swatch.mono      { background: linear-gradient(90deg, #222, #ddd); }
-.palette-swatch.cyber     { background: linear-gradient(90deg, #0ff, #f0f); }
-.palette-swatch.neon      { background: linear-gradient(90deg, #0f0, #0ff); }
-.palette-swatch.blood     { background: linear-gradient(90deg, #800, #f44); }
-.palette-swatch.ice       { background: linear-gradient(90deg, #8af, #def); }
-.palette-swatch.gold      { background: linear-gradient(90deg, #640, #fd0); }
-.palette-swatch.vaporwave { background: linear-gradient(90deg, #ff6ec7, #a78bfa, #38bdf8); }
-.palette-swatch.matrix    { background: linear-gradient(90deg, #001, #0f0); }
-.palette-swatch.rust      { background: linear-gradient(90deg, #3a1a00, #c74a00, #e8a060); }
-.palette-swatch.gundam    { background: linear-gradient(90deg, #060a06, #4cd964, #ffcc00, #ff8c00); }
-.palette-swatch.evangelion{ background: linear-gradient(90deg, #0d0200, #ff6600, #ff2200, #ffaa00); }
-.palette-swatch.sunset    { background: linear-gradient(90deg, #c9184a, #ff6b35, #ffd166); }
-.palette-swatch.ocean     { background: linear-gradient(90deg, #023e8a, #0077b6, #90e0ef); }
-.palette-swatch.forest    { background: linear-gradient(90deg, #1b4332, #40916c, #b7e4c7); }
-.palette-swatch.nordic    { background: linear-gradient(90deg, #2e3440, #88c0d0, #eceff4); }
-.palette-swatch.sakura    { background: linear-gradient(90deg, #ff758f, #ffc2d1, #c77dff); }
-.palette-swatch.lava      { background: linear-gradient(90deg, #0c0200, #ff4500, #ffd000); }
-.palette-swatch.synthwave { background: linear-gradient(90deg, #3a0ca3, #f72585, #4cc9f0); }
-.palette-swatch.toxic     { background: linear-gradient(90deg, #030800, #aaff00, #ffff00); }
+/* ─── THEME SELECTOR UI ─── */
+.theme-preview-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: var(--surface2);
+  border: 1px solid var(--border-accent);
+  padding: 6px 10px;
+  border-radius: var(--radius);
+}
+.theme-swatch-badge {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.theme-bg-dot {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  box-shadow: 0 0 4px rgba(0, 0, 0, 0.5);
+  flex-shrink: 0;
+  background: #030712;
+}
+.theme-palette-bar {
+  width: 48px;
+  height: 10px;
+  border-radius: 3px;
+  flex-shrink: 0;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: linear-gradient(90deg, #00f0ff, #ff0077, #ffe600);
+}
+.theme-name-display {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--accent);
+  letter-spacing: 0.8px;
+  white-space: nowrap;
+}
+.theme-step-btn {
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  color: var(--text-bright);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  padding: 0 10px;
+  height: 32px;
+  cursor: pointer;
+  border-radius: var(--radius);
+  transition: all 0.12s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.theme-step-btn:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: rgba(124, 160, 240, 0.12);
+}
+
+.palette-swatch.mono      { background: linear-gradient(90deg, #ffffff, #00eeff, #111111); }
+.palette-swatch.cyber     { background: linear-gradient(90deg, #00f0ff, #ff0077, #ffe600); }
+.palette-swatch.neon      { background: linear-gradient(90deg, #39ff14, #00ffcc, #ccff00); }
+.palette-swatch.blood     { background: linear-gradient(90deg, #ff0033, #ff2a00, #ff0066); }
+.palette-swatch.ice       { background: linear-gradient(90deg, #00ffff, #7df9ff, #0055ff); }
+.palette-swatch.gold      { background: linear-gradient(90deg, #ffd700, #ff9900, #ff5500); }
+.palette-swatch.vaporwave { background: linear-gradient(90deg, #ff71ce, #01cdfe, #05ffa1); }
+.palette-swatch.matrix    { background: linear-gradient(90deg, #00ff00, #00ff66, #00cc44); }
+.palette-swatch.rust      { background: linear-gradient(90deg, #ff4500, #ff6600, #ffaa00); }
+.palette-swatch.gundam    { background: linear-gradient(90deg, #00ff66, #ffcc00, #00e5ff); }
+.palette-swatch.evangelion{ background: linear-gradient(90deg, #a855f7, #22c55e, #ff3b30); }
+.palette-swatch.sunset    { background: linear-gradient(90deg, #ff3366, #ff6b35, #ff9900); }
+.palette-swatch.ocean     { background: linear-gradient(90deg, #0099ff, #00e5ff, #0055ff); }
+.palette-swatch.forest    { background: linear-gradient(90deg, #00ff88, #2ecc71, #55efc4); }
+.palette-swatch.nordic    { background: linear-gradient(90deg, #00d2ff, #88c0d0, #b48ead); }
+.palette-swatch.sakura    { background: linear-gradient(90deg, #ff007f, #ff66b2, #e60073); }
+.palette-swatch.lava      { background: linear-gradient(90deg, #ff2200, #ff6600, #ffcc00); }
+.palette-swatch.synthwave { background: linear-gradient(90deg, #ff007f, #9d4edd, #00f0ff); }
+.palette-swatch.toxic     { background: linear-gradient(90deg, #a3e635, #facc15, #00ff44); }
 
 .bg-swatch { width: 100%; height: 10px; border-radius: 1px; display: block; }
-.bg-swatch.light    { background: linear-gradient(90deg, #d8dae4, #f0ede6); }
-.bg-swatch.dark     { background: linear-gradient(90deg, #06060e, #16161e); }
-.bg-swatch.paper    { background: linear-gradient(90deg, #e8e0d0, #f5f0e8); }
-.bg-swatch.black    { background: #080808; }
-.bg-swatch.midnight { background: linear-gradient(90deg, #070d1a, #1a2a4a); }
-.bg-swatch.sepia    { background: linear-gradient(90deg, #c8a060, #f2e2c0); }
-.bg-swatch.violet   { background: linear-gradient(90deg, #1a0835, #3a1060); }
-.bg-swatch.jade     { background: linear-gradient(90deg, #041c0c, #0a3a18); }
-.bg-swatch.wine     { background: linear-gradient(90deg, #280810, #4a1020); }
-.bg-swatch.steel    { background: linear-gradient(90deg, #081228, #102040); }
-.bg-swatch.copper   { background: linear-gradient(90deg, #2a1406, #4e2a0c); }
-.bg-swatch.slate    { background: linear-gradient(90deg, #101826, #1e2e40); }
+.bg-swatch.light    { background: #ffffff; border: 1px solid #ddd; }
+.bg-swatch.dark     { background: #080a0f; }
+.bg-swatch.paper    { background: #f5f2eb; }
+.bg-swatch.black    { background: #000000; box-shadow: inset 0 0 0 1px #333; }
+.bg-swatch.midnight { background: #030712; }
+.bg-swatch.sepia    { background: #1c130b; }
+.bg-swatch.violet   { background: #0d041c; }
+.bg-swatch.jade     { background: #01140a; }
+.bg-swatch.wine     { background: #1a0208; }
+.bg-swatch.steel    { background: #060d1a; }
+.bg-swatch.copper   { background: #180b03; }
+.bg-swatch.slate    { background: #0c1018; }
 
 /* ─── SLIDERS ─── */
 .slider-row { margin-bottom: 8px; }

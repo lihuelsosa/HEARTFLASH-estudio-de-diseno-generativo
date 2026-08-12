@@ -45,7 +45,7 @@
           <span>◉</span> MIDI LEARN
         </button>
       </div>
-      <span class="hud-label" id="mode-badge">MODO::VECTORHEART</span>
+      <span class="hud-label" id="mode-badge">MODO::FLOW</span>
       <span class="hud-sep">|</span>
       <span class="hud-label sys-label">SYS::v3.0.0</span>
       <div class="status-dot" id="status-dot"></div>
@@ -70,18 +70,7 @@
         <div class="section-header"><span class="section-icon">◈</span><span>MODO</span></div>
         <div class="select-wrap">
           <select id="mode-select" class="hud-select">
-            <option value="vectorheart" selected>VECTORHEART</option>
-            <option value="circuit">CIRCUIT</option>
-            <option value="hud">HUD</option>
-            <option value="glitch">GLITCH</option>
-            <option value="blueprint">BLUEPRINT</option>
-            <option value="chaos">CHAOS</option>
-            <option value="flow">FLOW</option>
-            <option value="sacred">SACRED</option>
-            <option value="glyph">GLYPH</option>
-            <option value="volumetric">VOLUMETRIC</option>
-            <option value="gundam">GUNDAM</option>
-            <option value="evangelion">EVANGELION</option>
+            <option value="flow" selected>FLOW</option>
           </select>
           <span class="select-arrow">▼</span>
         </div>
@@ -91,9 +80,33 @@
       <div class="panel-section section-params">
         <div class="section-header"><span class="section-icon">◈</span><span>PARÁMETROS</span></div>
         <div class="slider-row"><label class="slider-label" for="detail-slider">DETALLE</label><div class="slider-track-wrap"><input type="range" id="detail-slider" min="0" max="100" value="50" step="1"><span class="slider-val" id="detail-val">50</span></div></div>
-        <div class="slider-row"><label class="slider-label" for="weight-slider">GROSOR</label><div class="slider-track-wrap"><input type="range" id="weight-slider" min="0" max="100" value="0" step="1"><span class="slider-val" id="weight-val">0</span></div></div>
+        <div class="slider-row"><label class="slider-label" for="weight-slider">GROSOR</label><div class="slider-track-wrap"><input type="range" id="weight-slider" min="0" max="100" value="20" step="1"><span class="slider-val" id="weight-val">20</span></div></div>
         <div class="slider-row"><label class="slider-label" for="chaos-slider">CAOS</label><div class="slider-track-wrap"><input type="range" id="chaos-slider" min="0" max="100" value="0" step="1"><span class="slider-val" id="chaos-val">0</span></div></div>
-        <div class="slider-row"><label class="slider-label" for="text-slider">TEXTO HUD</label><div class="slider-track-wrap"><input type="range" id="text-slider" min="0" max="100" value="0" step="1"><span class="slider-val" id="text-val">0</span></div></div>
+        <div class="slider-row"><label class="slider-label" for="flow-freq-slider">FRECUENCIA</label><div class="slider-track-wrap"><input type="range" id="flow-freq-slider" min="0" max="100" value="50" step="1"><span class="slider-val" id="flow-freq-val">50</span></div></div>
+        <div class="slider-row"><label class="slider-label" for="flow-turb-slider">TURBULENCIA</label><div class="slider-track-wrap"><input type="range" id="flow-turb-slider" min="0" max="100" value="50" step="1"><span class="slider-val" id="flow-turb-val">50</span></div></div>
+        <div class="slider-row" style="margin-top: 4px; display: flex; flex-direction: column; gap: 4px; align-items: flex-start;">
+          <label class="slider-label" for="flow-shape-select">TIPO DE FORMA</label>
+          <div class="select-wrap" style="width: 100%;">
+            <select id="flow-shape-select" class="hud-select" style="width: 100%;">
+              <option value="stream" selected>FLUID STREAMS</option>
+              <option value="orbit">ORBITAL VORTEX</option>
+              <option value="cyber-grid">CYBER VECTOR GRID</option>
+              <option value="lissajous">SUPER-LISSAJOUS</option>
+              <option value="particles">ENERGY CLUSTERS</option>
+              <option value="hyper-ribbon">HYPER RIBBONS</option>
+            </select>
+            <span class="select-arrow">▼</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- CÁMARA & ENCUADRE -->
+      <div class="panel-section section-camera">
+        <div class="section-header"><span class="section-icon">🔍</span><span>CÁMARA & ENCUADRE</span></div>
+        <div class="slider-row"><label class="slider-label" for="cam-zoom-slider">ZOOM</label><div class="slider-track-wrap"><input type="range" id="cam-zoom-slider" min="100" max="250" value="100" step="1"><span class="slider-val" id="cam-zoom-val">100%</span></div></div>
+        <div class="slider-row"><label class="slider-label" for="cam-pan-x-slider">PAN X</label><div class="slider-track-wrap"><input type="range" id="cam-pan-x-slider" min="-50" max="50" value="0" step="1"><span class="slider-val" id="cam-pan-x-val">0</span></div></div>
+        <div class="slider-row"><label class="slider-label" for="cam-pan-y-slider">PAN Y</label><div class="slider-track-wrap"><input type="range" id="cam-pan-y-slider" min="-50" max="50" value="0" step="1"><span class="slider-val" id="cam-pan-y-val">0</span></div></div>
+        <div class="slider-row"><label class="slider-label" for="cam-rotate-slider">ROTACIÓN</label><div class="slider-track-wrap"><input type="range" id="cam-rotate-slider" min="-180" max="180" value="0" step="1"><span class="slider-val" id="cam-rotate-val">0°</span></div></div>
       </div>
 
       <!-- TEXTO PERSONALIZADO -->
@@ -210,45 +223,48 @@
         </div>
       </div>
 
-      <!-- ESTILO (Duplicado para Móvil) -->
+      <!-- TEMA VISUAL (Paleta + Fondo Unificados) -->
       <div class="panel-section section-style">
-        <div class="section-header"><span class="section-icon">◈</span><span>PALETA</span></div>
-        <div class="palette-grid">
-          <button class="palette-btn active" data-palette="mono">      <span class="palette-swatch mono"></span>      <span>MONO</span></button>
-          <button class="palette-btn" data-palette="cyber">            <span class="palette-swatch cyber"></span>     <span>CYBER</span></button>
-          <button class="palette-btn" data-palette="neon">             <span class="palette-swatch neon"></span>      <span>NEÓN</span></button>
-          <button class="palette-btn" data-palette="blood">            <span class="palette-swatch blood"></span>     <span>SANGRE</span></button>
-          <button class="palette-btn" data-palette="ice">              <span class="palette-swatch ice"></span>       <span>HIELO</span></button>
-          <button class="palette-btn" data-palette="gold">             <span class="palette-swatch gold"></span>      <span>ORO</span></button>
-          <button class="palette-btn" data-palette="vaporwave">        <span class="palette-swatch vaporwave"></span> <span>VAPOR</span></button>
-          <button class="palette-btn" data-palette="matrix">           <span class="palette-swatch matrix"></span>    <span>MATRIX</span></button>
-          <button class="palette-btn" data-palette="rust">             <span class="palette-swatch rust"></span>      <span>ÓXIDO</span></button>
-          <button class="palette-btn" data-palette="gundam">           <span class="palette-swatch gundam"></span>    <span>GUNDAM</span></button>
-          <button class="palette-btn" data-palette="evangelion">       <span class="palette-swatch evangelion"></span><span>NERV</span></button>
-          <button class="palette-btn" data-palette="sunset">           <span class="palette-swatch sunset"></span>    <span>SUNSET</span></button>
-          <button class="palette-btn" data-palette="ocean">            <span class="palette-swatch ocean"></span>     <span>OCEAN</span></button>
-          <button class="palette-btn" data-palette="forest">           <span class="palette-swatch forest"></span>    <span>FOREST</span></button>
-          <button class="palette-btn" data-palette="nordic">           <span class="palette-swatch nordic"></span>    <span>NORDIC</span></button>
-          <button class="palette-btn" data-palette="sakura">           <span class="palette-swatch sakura"></span>    <span>SAKURA</span></button>
-          <button class="palette-btn" data-palette="lava">             <span class="palette-swatch lava"></span>      <span>LAVA</span></button>
-          <button class="palette-btn" data-palette="synthwave">        <span class="palette-swatch synthwave"></span> <span>SYNTH</span></button>
-          <button class="palette-btn" data-palette="toxic">            <span class="palette-swatch toxic"></span>     <span>TOXIC</span></button>
-        </div>
+        <div class="section-header"><span class="section-icon">◈</span><span>TEMA VISUAL</span></div>
+        <div class="theme-selector-wrap" style="margin-top: 8px;">
+          <div class="theme-preview-bar" id="theme-preview-bar">
+            <div class="theme-swatch-badge" id="theme-swatch-badge">
+              <span class="theme-bg-dot" id="theme-bg-dot"></span>
+              <span class="theme-palette-bar" id="theme-palette-bar"></span>
+            </div>
+            <span class="theme-name-display" id="theme-name-display">CYBER NIGHT</span>
+          </div>
 
-        <div class="section-header" style="margin-top: 14px;"><span class="section-icon">◈</span><span>FONDO</span></div>
-        <div class="bg-grid">
-          <button class="bg-btn active" data-bg="light">   <span class="bg-swatch light"></span>   <span>CLARO</span></button>
-          <button class="bg-btn" data-bg="dark">           <span class="bg-swatch dark"></span>    <span>OSCURO</span></button>
-          <button class="bg-btn" data-bg="paper">          <span class="bg-swatch paper"></span>   <span>PAPEL</span></button>
-          <button class="bg-btn" data-bg="black">          <span class="bg-swatch black"></span>   <span>NEGRO</span></button>
-          <button class="bg-btn" data-bg="midnight">       <span class="bg-swatch midnight"></span><span>NOCHE</span></button>
-          <button class="bg-btn" data-bg="sepia">          <span class="bg-swatch sepia"></span>   <span>SEPIA</span></button>
-          <button class="bg-btn" data-bg="violet">         <span class="bg-swatch violet"></span>  <span>VIOLETA</span></button>
-          <button class="bg-btn" data-bg="jade">           <span class="bg-swatch jade"></span>    <span>JADE</span></button>
-          <button class="bg-btn" data-bg="wine">           <span class="bg-swatch wine"></span>    <span>VINO</span></button>
-          <button class="bg-btn" data-bg="steel">          <span class="bg-swatch steel"></span>   <span>ACERO</span></button>
-          <button class="bg-btn" data-bg="copper">         <span class="bg-swatch copper"></span>  <span>COBRE</span></button>
-          <button class="bg-btn" data-bg="slate">          <span class="bg-swatch slate"></span>   <span>PIZARRA</span></button>
+          <div style="display: flex; gap: 6px; margin-top: 8px; align-items: center;">
+            <button class="theme-step-btn" id="theme-btn-prev" title="Tema Anterior">◀</button>
+            <div class="select-wrap" style="flex: 1; margin-bottom: 0;">
+              <select id="theme-select" class="hud-select" style="width: 100%;">
+                <option value="cyber-night" selected>01. CYBER NIGHT</option>
+                <option value="oled-neon">02. OLED NEON</option>
+                <option value="matrix-void">03. MATRIX VOID</option>
+                <option value="blood-crimson">04. BLOOD CRIMSON</option>
+                <option value="frost-ice">05. FROST ICE</option>
+                <option value="solar-gold">06. SOLAR GOLD</option>
+                <option value="retro-vapor">07. RETRO VAPOR</option>
+                <option value="nerv-protocol">08. NERV PROTOCOL</option>
+                <option value="synth-night">09. SYNTH NIGHT</option>
+                <option value="toxic-acid">10. TOXIC ACID</option>
+                <option value="gundam-tact">11. GUNDAM TACT</option>
+                <option value="volcanic-lava">12. VOLCANIC LAVA</option>
+                <option value="cyber-sunset">13. CYBER SUNSET</option>
+                <option value="deep-ocean">14. DEEP OCEAN</option>
+                <option value="biosphere">15. BIOSPHERE</option>
+                <option value="sakura-night">16. SAKURA NIGHT</option>
+                <option value="nordic-frost">17. NORDIC FROST</option>
+                <option value="high-mono">18. HIGH-CONTRAST</option>
+                <option value="vintage-sepia">19. VINTAGE SEPIA</option>
+                <option value="clean-studio">20. CLEAN STUDIO</option>
+              </select>
+              <span class="select-arrow">▼</span>
+            </div>
+            <button class="theme-step-btn" id="theme-btn-next" title="Siguiente Tema">▶</button>
+            <button class="action-btn secondary" id="btn-theme-shuffle" style="padding: 5px 8px; font-size: 11px; height: 32px; font-weight: bold;" title="Tema Aleatorio">🔀</button>
+          </div>
         </div>
       </div>
 
@@ -277,47 +293,46 @@
 
     <!-- Canvas + Gallery -->
     <section class="canvas-area">
-      <!-- Top controls bar (Palette + Background) -->
+      <!-- Top controls bar (Unified Theme Selector) -->
       <div class="canvas-top-controls">
-        <div class="top-section section-palette">
-          <div class="top-section-header">PALETA</div>
-          <div class="palette-grid" id="palette-grid">
-            <button class="palette-btn active" data-palette="mono"       id="palette-mono">      <span class="palette-swatch mono"></span>      <span>MONO</span></button>
-            <button class="palette-btn" data-palette="cyber"      id="palette-cyber">     <span class="palette-swatch cyber"></span>     <span>CYBER</span></button>
-            <button class="palette-btn" data-palette="neon"       id="palette-neon">      <span class="palette-swatch neon"></span>      <span>NEÓN</span></button>
-            <button class="palette-btn" data-palette="blood"      id="palette-blood">     <span class="palette-swatch blood"></span>     <span>SANGRE</span></button>
-            <button class="palette-btn" data-palette="ice"        id="palette-ice">       <span class="palette-swatch ice"></span>       <span>HIELO</span></button>
-            <button class="palette-btn" data-palette="gold"       id="palette-gold">      <span class="palette-swatch gold"></span>      <span>ORO</span></button>
-            <button class="palette-btn" data-palette="vaporwave"  id="palette-vaporwave"> <span class="palette-swatch vaporwave"></span> <span>VAPOR</span></button>
-            <button class="palette-btn" data-palette="matrix"     id="palette-matrix">    <span class="palette-swatch matrix"></span>    <span>MATRIX</span></button>
-            <button class="palette-btn" data-palette="rust"       id="palette-rust">      <span class="palette-swatch rust"></span>      <span>ÓXIDO</span></button>
-            <button class="palette-btn" data-palette="gundam"     id="palette-gundam">    <span class="palette-swatch gundam"></span>    <span>GUNDAM</span></button>
-            <button class="palette-btn" data-palette="evangelion" id="palette-evangelion"><span class="palette-swatch evangelion"></span><span>NERV</span></button>
-            <button class="palette-btn" data-palette="sunset"     id="palette-sunset">    <span class="palette-swatch sunset"></span>    <span>SUNSET</span></button>
-            <button class="palette-btn" data-palette="ocean"      id="palette-ocean">     <span class="palette-swatch ocean"></span>     <span>OCEAN</span></button>
-            <button class="palette-btn" data-palette="forest"     id="palette-forest">    <span class="palette-swatch forest"></span>    <span>FOREST</span></button>
-            <button class="palette-btn" data-palette="nordic"     id="palette-nordic">    <span class="palette-swatch nordic"></span>    <span>NORDIC</span></button>
-            <button class="palette-btn" data-palette="sakura"     id="palette-sakura">    <span class="palette-swatch sakura"></span>    <span>SAKURA</span></button>
-            <button class="palette-btn" data-palette="lava"       id="palette-lava">      <span class="palette-swatch lava"></span>      <span>LAVA</span></button>
-            <button class="palette-btn" data-palette="synthwave"  id="palette-synthwave"> <span class="palette-swatch synthwave"></span> <span>SYNTH</span></button>
-            <button class="palette-btn" data-palette="toxic"      id="palette-toxic">     <span class="palette-swatch toxic"></span>     <span>TOXIC</span></button>
-          </div>
-        </div>
-        <div class="top-section section-bg">
-          <div class="top-section-header">FONDO</div>
-          <div class="bg-grid" id="bg-grid">
-            <button class="bg-btn active" data-bg="light"    id="bg-light">   <span class="bg-swatch light"></span>   <span>CLARO</span></button>
-            <button class="bg-btn"        data-bg="dark"     id="bg-dark">    <span class="bg-swatch dark"></span>    <span>OSCURO</span></button>
-            <button class="bg-btn"        data-bg="paper"    id="bg-paper">   <span class="bg-swatch paper"></span>   <span>PAPEL</span></button>
-            <button class="bg-btn"        data-bg="black"    id="bg-black">   <span class="bg-swatch black"></span>   <span>NEGRO</span></button>
-            <button class="bg-btn"        data-bg="midnight" id="bg-midnight"><span class="bg-swatch midnight"></span><span>NOCHE</span></button>
-            <button class="bg-btn"        data-bg="sepia"    id="bg-sepia">   <span class="bg-swatch sepia"></span>   <span>SEPIA</span></button>
-            <button class="bg-btn"        data-bg="violet"   id="bg-violet">  <span class="bg-swatch violet"></span>  <span>VIOLETA</span></button>
-            <button class="bg-btn"        data-bg="jade"     id="bg-jade">    <span class="bg-swatch jade"></span>    <span>JADE</span></button>
-            <button class="bg-btn"        data-bg="wine"     id="bg-wine">    <span class="bg-swatch wine"></span>    <span>VINO</span></button>
-            <button class="bg-btn"        data-bg="steel"    id="bg-steel">   <span class="bg-swatch steel"></span>   <span>ACERO</span></button>
-            <button class="bg-btn"        data-bg="copper"   id="bg-copper">  <span class="bg-swatch copper"></span>  <span>COBRE</span></button>
-            <button class="bg-btn"        data-bg="slate"    id="bg-slate">   <span class="bg-swatch slate"></span>   <span>PIZARRA</span></button>
+        <div class="top-section section-theme" style="width: 100%;">
+          <div class="top-section-header">TEMA VISUAL</div>
+          <div style="display: flex; gap: 8px; align-items: center; width: 100%;">
+            <div class="theme-preview-bar" id="top-theme-preview-bar" style="min-width: 180px;">
+              <div class="theme-swatch-badge" id="top-theme-swatch-badge">
+                <span class="theme-bg-dot" id="top-theme-bg-dot"></span>
+                <span class="theme-palette-bar" id="top-theme-palette-bar"></span>
+              </div>
+              <span class="theme-name-display" id="top-theme-name-display">CYBER NIGHT</span>
+            </div>
+            <button class="theme-step-btn" id="top-theme-btn-prev" title="Tema Anterior">◀</button>
+            <div class="select-wrap" style="flex: 1; margin-bottom: 0;">
+              <select id="top-theme-select" class="hud-select" style="width: 100%;">
+                <option value="cyber-night" selected>01. CYBER NIGHT</option>
+                <option value="oled-neon">02. OLED NEON</option>
+                <option value="matrix-void">03. MATRIX VOID</option>
+                <option value="blood-crimson">04. BLOOD CRIMSON</option>
+                <option value="frost-ice">05. FROST ICE</option>
+                <option value="solar-gold">06. SOLAR GOLD</option>
+                <option value="retro-vapor">07. RETRO VAPOR</option>
+                <option value="nerv-protocol">08. NERV PROTOCOL</option>
+                <option value="synth-night">09. SYNTH NIGHT</option>
+                <option value="toxic-acid">10. TOXIC ACID</option>
+                <option value="gundam-tact">11. GUNDAM TACT</option>
+                <option value="volcanic-lava">12. VOLCANIC LAVA</option>
+                <option value="cyber-sunset">13. CYBER SUNSET</option>
+                <option value="deep-ocean">14. DEEP OCEAN</option>
+                <option value="biosphere">15. BIOSPHERE</option>
+                <option value="sakura-night">16. SAKURA NIGHT</option>
+                <option value="nordic-frost">17. NORDIC FROST</option>
+                <option value="high-mono">18. HIGH-CONTRAST</option>
+                <option value="vintage-sepia">19. VINTAGE SEPIA</option>
+                <option value="clean-studio">20. CLEAN STUDIO</option>
+              </select>
+              <span class="select-arrow">▼</span>
+            </div>
+            <button class="theme-step-btn" id="top-theme-btn-next" title="Siguiente Tema">▶</button>
+            <button class="action-btn secondary" id="top-btn-theme-shuffle" style="padding: 5px 10px; font-size: 11px; height: 32px; font-weight: bold;" title="Tema Aleatorio">🔀 ALEATORIO</button>
           </div>
         </div>
       </div>
@@ -366,6 +381,13 @@
         <div class="export-bar-sep"></div>
         <button class="export-bar-btn export-bar-record" id="btn-record-video"><span>●</span>GRABAR</button>
         <button class="export-bar-btn export-bar-record" id="btn-stop-recording" style="display:none;" title="Detener grabación"><span>■</span>STOP</button>
+        <div class="select-wrap" style="width:56px;margin-bottom:0;" title="Formato de video">
+          <select id="record-format-select" class="hud-select" style="padding:2px 4px;font-size:10px;">
+            <option value="mp4" selected>MP4</option>
+            <option value="webm">WEBM</option>
+          </select>
+          <span class="select-arrow" style="font-size:8px;right:4px;top:50%;transform:translateY(-50%)">▼</span>
+        </div>
         <div class="select-wrap" style="width:52px;margin-bottom:0;" title="Resolución de grabación">
           <select id="record-resolution-select" class="hud-select" style="padding:2px 4px;font-size:10px;">
             <option value="720">720p</option>

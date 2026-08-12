@@ -342,8 +342,9 @@
   // ── State ──────────────────────────────────────────────────────────────────
   const state = {
     isBatchUpdating: false,
-    mode: 'vectorheart', palette: 'mono', bg: 'dark',
-    detail: 20, complexity: 5, density: 3, weight: 0, chaos: 0, textAmount: 0,
+    mode: 'flow', palette: 'mono', bg: 'dark',
+    detail: 20, complexity: 5, density: 3, weight: 20, chaos: 0, textAmount: 0,
+    flowFrequency: 50, flowTurbulence: 50, flowShape: 'stream',
     customText: '', customFont: "'Share Tech Mono', monospace", customFontWeight: '400', customTextAmount: 0,
     customTextSize: 20, customTextOpacity: 70, customTextColor: 'auto',
     animDetail: false, animWeight: false, animChaos: false, animText: false,
@@ -365,6 +366,10 @@
     hasGenerated: true,
     animWave: 'triangle',
     activeTab: 0,
+    cameraZoom: 100,
+    cameraPanX: 0,
+    cameraPanY: 0,
+    cameraRotate: 0,
     lfos: [
       { wave: 'sine',     rate: 8  },
       { wave: 'triangle', rate: 6  },
@@ -450,7 +455,7 @@
 
   const BLOCK_DEFS = {
     mode: { lfoTargets: ['mode'], patchDests: ['mode'] },
-    params: { lfoTargets: ['detail', 'weight', 'chaos', 'text'], patchDests: ['detail', 'weight', 'chaos', 'text'] },
+    params: { lfoTargets: ['detail', 'weight', 'chaos', 'text'], patchDests: ['detail', 'weight', 'chaos', 'text', 'seed'] },
     text: { lfoTargets: ['text', 'customDensity', 'customSize'], patchDests: ['customDensity', 'customSize'] },
     symmetry: { lfoTargets: [], patchDests: [] },
     palette: { lfoTargets: ['palette'], patchDests: ['palette'] },
@@ -914,8 +919,11 @@
   async function tryLoopbackInputDevice(preferredDeviceId = null) {
     if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) return null;
     const devices = await navigator.mediaDevices.enumerateDevices();
+    const loopRegex = /(stereo mix|what u hear|loopback|mezcla estereo|virtual cable|vb-audio|cable output|monitor)/i;
+
+    // 1. If preferredDeviceId is provided, only accept it if its label matches loopback keywords
     if (preferredDeviceId && preferredDeviceId !== 'default') {
-      const selected = devices.find(d => d.kind === 'audioinput' && d.deviceId === preferredDeviceId);
+      const selected = devices.find(d => d.kind === 'audioinput' && d.deviceId === preferredDeviceId && loopRegex.test(d.label || ''));
       if (selected) {
         const stream = await navigator.mediaDevices.getUserMedia({
           audio: {
@@ -929,7 +937,7 @@
       }
     }
 
-    const loopRegex = /(stereo mix|what u hear|loopback|mezcla estereo|monitor)/i;
+    // 2. Search for any hardware device matching loopback keywords
     const loopInput = devices.find(d => d.kind === 'audioinput' && loopRegex.test(d.label || ''));
     if (!loopInput) return null;
 
@@ -948,48 +956,46 @@
     if (!navigator.mediaDevices) throw new Error('NO_MEDIA_DEVICES');
 
     if (state.audioRx.source === 'loopback') {
-      // ── 1. Try the user-selected device directly (may be a virtual cable) ──
-      const selId = state.audioRx.deviceId;
-      if (selId && selId !== 'default') {
-        try {
-          const stream = await navigator.mediaDevices.getUserMedia({
-            audio: {
-              deviceId: { exact: selId },
-              echoCancellation: false, noiseSuppression: false, autoGainControl: false,
-            }
-          });
-          return { stream, rawStream: stream, sourceLabel: 'LOOPBACK DEVICE' };
-        } catch(e) { /* continue */ }
-      }
+      // ── 1. Try dedicated Loopback hardware/virtual devices (Stereo Mix, VB-Cable, etc.) ──
+      const loopInput = await tryLoopbackInputDevice(state.audioRx.deviceId);
+      if (loopInput) return loopInput;
 
-      // ── 2. Request audio permission so device labels become readable, then
-      //       look for Stereo Mix / What U Hear / virtual cable ──────────────
+      // ── 2. Request audio permission silently so labels become visible, then check again ──
       let permStream = null;
       try {
         permStream = await navigator.mediaDevices.getUserMedia({ audio: true });
       } catch(e) { /* permission denied — labels stay empty */ }
 
-      const loopInput = await tryLoopbackInputDevice(null);
-      if (permStream) permStream.getTracks().forEach(t => t.stop());
-      if (loopInput) return loopInput;
+      const loopInputAfterPerm = await tryLoopbackInputDevice(null);
+      if (permStream) permStream.getTracks().forEach(t => t.stop()); // Immediately stop mic stream
+      if (loopInputAfterPerm) return loopInputAfterPerm;
 
-      // ── 3. getDisplayMedia fallback (current tab + system audio) ──────────
+      // ── 3. getDisplayMedia fallback (Internal Tab / System Audio Loopback) ──────────
       if (navigator.mediaDevices.getDisplayMedia) {
         try {
           const displayStream = await navigator.mediaDevices.getDisplayMedia({
-            preferCurrentTab: true,
-            selfBrowserSurface: 'include',
-            surfaceSwitching: 'exclude',
-            systemAudio: 'include',
-            video: { frameRate: 1 },
             audio: {
-              echoCancellation: false, noiseSuppression: false,
-              autoGainControl: false, suppressLocalAudioPlayback: false,
-            }
+              echoCancellation: false,
+              noiseSuppression: false,
+              autoGainControl: false,
+              suppressLocalAudioPlayback: false,
+            },
+            video: true,
+            surfaceSwitching: 'include',
+            systemAudio: 'include',
+            selfBrowserSurface: 'exclude'
           });
-          const tracks = displayStream.getAudioTracks();
-          if (tracks.length) {
-            return { stream: new MediaStream([tracks[0]]), rawStream: displayStream, sourceLabel: 'LOOPBACK DISPLAY' };
+
+          // Immediately stop video tracks so Chromium/YouTube does not freeze or throttle video playback!
+          displayStream.getVideoTracks().forEach(t => {
+            t.enabled = false;
+            try { t.stop(); } catch(e) {}
+          });
+
+          const audioTracks = displayStream.getAudioTracks();
+          if (audioTracks.length) {
+            const audioStream = new MediaStream([audioTracks[0]]);
+            return { stream: audioStream, rawStream: displayStream, sourceLabel: 'LOOPBACK DISPLAY' };
           }
           displayStream.getTracks().forEach(t => t.stop());
         } catch(err) { /* user cancelled dialog */ }
@@ -1086,7 +1092,7 @@
 
       audioRxRuntime.sourceNode = audioRxRuntime.ctx.createMediaStreamSource(audioRxRuntime.stream);
       audioRxRuntime.analyser = audioRxRuntime.ctx.createAnalyser();
-      audioRxRuntime.analyser.fftSize = 4096;   // higher resolution for low-freq accuracy
+      audioRxRuntime.analyser.fftSize = 1024;   // 1024 fftSize for 4x faster FFT processing
       audioRxRuntime.analyser.smoothingTimeConstant = 0; // all smoothing done in JS
       audioRxRuntime.sourceNode.connect(audioRxRuntime.analyser);
       audioRxRuntime.timeData = new Uint8Array(audioRxRuntime.analyser.fftSize);
@@ -1199,6 +1205,45 @@
       state.audioRx.lowLevel  = (state.audioRx.lowLevel  * smooth + lowVal  * (1 - smooth)) * master;
       state.audioRx.midLevel  = (state.audioRx.midLevel  * smooth + midVal  * (1 - smooth)) * master;
       state.audioRx.highLevel = (state.audioRx.highLevel * smooth + highVal * (1 - smooth)) * master;
+
+      // ── Beat Onset & Rhythm Tracking for Intelligent Autopilot ───────────
+      const lowLevel = state.audioRx.lowLevel;
+      const now = performance.now();
+      const prevLow = state._prevLowLevel || 0;
+      state._prevLowLevel = lowLevel;
+
+      // Continuous smooth audio-reactive camera encuadre swell when Autopilot is ON
+      if (autopilotEnabled) {
+        const targetZoom = Math.max(100, Math.min(250, 100 + state.audioRx.lowLevel * 45 + state.audioRx.midLevel * 25));
+        const targetPanX = Math.sin(state.animTime * 0.4) * 15 * state.audioRx.midLevel;
+        const targetPanY = Math.cos(state.animTime * 0.3) * 15 * state.audioRx.lowLevel;
+        const targetRot = Math.sin(state.animTime * 0.25) * 20 * state.audioRx.midLevel;
+
+        state.cameraZoom = state.cameraZoom * 0.88 + targetZoom * 0.12;
+        state.cameraPanX = state.cameraPanX * 0.88 + targetPanX * 0.12;
+        state.cameraPanY = state.cameraPanY * 0.88 + targetPanY * 0.12;
+        state.cameraRotate = state.cameraRotate * 0.88 + targetRot * 0.12;
+
+        const setCamSliderUi = (id, val, unit = '') => {
+          const el = document.getElementById(id);
+          if (el) el.value = String(Math.round(val));
+          const valEl = document.getElementById(id.replace('-slider', '-val'));
+          if (valEl) valEl.textContent = `${Math.round(val)}${unit}`;
+        };
+        setCamSliderUi('cam-zoom-slider', state.cameraZoom, '%');
+        setCamSliderUi('cam-pan-x-slider', state.cameraPanX);
+        setCamSliderUi('cam-pan-y-slider', state.cameraPanY);
+        setCamSliderUi('cam-rotate-slider', state.cameraRotate, '°');
+      }
+
+      // Detect kick drum / bass transient spike
+      if (lowLevel > 0.38 && (lowLevel - prevLow) > 0.07 && (now - (state._lastBeatTime || 0)) > 260) {
+        state._lastBeatTime = now;
+        state._beatCount = (state._beatCount || 0) + 1;
+        if (typeof onAudioBeatDetected === 'function') {
+          onAudioBeatDetected(state._beatCount, lowLevel);
+        }
+      }
     } else {
       state.audioRx.level     *= 0.9;
       state.audioRx.lowLevel  *= 0.9;
@@ -1214,6 +1259,10 @@
   function rngRange(a, b) { return a + rng() * (b - a); }
   function rngInt(a, b) { return Math.floor(rngRange(a, b + 1)); }
   function rngPick(arr) { return arr[Math.floor(rng() * arr.length)]; }
+
+  function clamp(v, min, max) { return Math.max(min, Math.min(max, isNaN(v) ? min : v)); }
+  function randInt(min, max) { return Math.floor(Math.random() * (max - min + 1)) + min; }
+  function pickOne(arr) { return arr ? arr[Math.floor(Math.random() * arr.length)] : null; }
 
   // ── Value Noise ────────────────────────────────────────────────────────────
   function smoothstep(t) { return t * t * (3 - 2 * t); }
@@ -1237,41 +1286,190 @@
 
   // ── Color Palettes ─────────────────────────────────────────────────────────
   const PALETTES = {
-    mono:      { bg_light:'#e8eaf0', bg_dark:'#16161e', bg_paper:'#f0ede6', bg_black:'#080808', colors:['#1e2030','#2e3248','#3e4260','#505578','#6a708c'], accent:'#1e2030', thin:'#8090b044' },
-    cyber:     { bg_light:'#e0f8ff', bg_dark:'#04080f', bg_paper:'#f0faff', bg_black:'#020610', colors:['#00eeff','#ff00ee','#0080ff','#8000ff','#00ff80','#ff8800'], accent:'#00eeff', thin:'#ff00ee44' },
-    neon:      { bg_light:'#e0ffe4', bg_dark:'#040f04', bg_paper:'#f0fff2', bg_black:'#020802', colors:['#00ff44','#00ffcc','#44ff00','#88ff00','#00ee88','#ccff00'], accent:'#00ff44', thin:'#00ff4433' },
-    blood:     { bg_light:'#ffe8e8', bg_dark:'#120404', bg_paper:'#fff2f0', bg_black:'#0a0202', colors:['#cc0000','#ff2200','#880011','#ff4400','#cc4422','#ff6644'], accent:'#ff2200', thin:'#cc000044' },
-    ice:       { bg_light:'#eef4ff', bg_dark:'#04080e', bg_paper:'#f5f8ff', bg_black:'#030610', colors:['#88aaff','#aaccff','#6688ee','#99bbff','#cce8ff','#ddeeff'], accent:'#88aaff', thin:'#88aaff44' },
-    gold:      { bg_light:'#fff8e8', bg_dark:'#120e00', bg_paper:'#fffaf0', bg_black:'#0a0800', colors:['#cc8800','#ffaa00','#ff6600','#ffd000','#886600','#ffcc44'], accent:'#ffaa00', thin:'#cc880044' },
-    vaporwave: { bg_light:'#fff0ff', bg_dark:'#0a0414', bg_paper:'#fff8fe', bg_black:'#080210', colors:['#ff6ec7','#a78bfa','#38bdf8','#fb7185','#c084fc','#67e8f9'], accent:'#ff6ec7', thin:'#a78bfa44' },
-    matrix:    { bg_light:'#e8ffe8', bg_dark:'#000a00', bg_paper:'#f0fff0', bg_black:'#000400', colors:['#00ff00','#00cc00','#00ff66','#44ff44','#00aa00','#88ff88'], accent:'#00ff00', thin:'#00ff0033' },
-    rust:      { bg_light:'#fff4ec', bg_dark:'#120800', bg_paper:'#fffaf5', bg_black:'#0c0400', colors:['#c74a00','#e8603a','#a03010','#f08050','#804020','#e8a060'], accent:'#c74a00', thin:'#c74a0044' },
-    gundam:    { bg_light:'#e8f0e0', bg_dark:'#060a06', bg_paper:'#f0f4e8', bg_black:'#020402', colors:['#4cd964','#ffcc00','#ff8c00','#00e5ff','#b8ff3c','#ffffff'], accent:'#ffcc00', thin:'#4cd96444' },
-    evangelion:{ bg_light:'#f4efff', bg_dark:'#09020f', bg_paper:'#fbf7ff', bg_black:'#040008', colors:['#7a35ff','#b05cff','#66ff33','#ff3b30','#ff9f0a','#ffffff'], accent:'#ff3b30', thin:'#7a35ff55' },
-    sunset:    { bg_light:'#fff0e8', bg_dark:'#120806', bg_paper:'#fdf5f0', bg_black:'#0c0402', colors:['#ff6b35','#f7c59f','#ff4d6d','#c9184a','#ff8fa3','#ffd166'], accent:'#ff6b35', thin:'#ff6b3544' },
-    ocean:     { bg_light:'#e8f4ff', bg_dark:'#020810', bg_paper:'#f0f8ff', bg_black:'#010610', colors:['#0077b6','#00b4d8','#90e0ef','#023e8a','#48cae4','#caf0f8'], accent:'#00b4d8', thin:'#0077b644' },
-    forest:    { bg_light:'#eaf5ea', bg_dark:'#040c04', bg_paper:'#f4faf4', bg_black:'#020802', colors:['#2d6a4f','#40916c','#52b788','#74c69d','#b7e4c7','#d8f3dc'], accent:'#40916c', thin:'#2d6a4f44' },
-    nordic:    { bg_light:'#eceff4', bg_dark:'#2e3440', bg_paper:'#e5e9f0', bg_black:'#1c2028', colors:['#88c0d0','#81a1c1','#5e81ac','#b48ead','#a3be8c','#ebcb8b'], accent:'#88c0d0', thin:'#5e81ac44' },
-    sakura:    { bg_light:'#fff0f5', bg_dark:'#160610', bg_paper:'#fff5f8', bg_black:'#0e0408', colors:['#ff85a1','#ffc2d1','#ffb3c1','#ff758f','#c77dff','#e040fb'], accent:'#ff85a1', thin:'#ff85a133' },
-    lava:      { bg_light:'#fff0e0', bg_dark:'#0c0200', bg_paper:'#fff5ec', bg_black:'#080100', colors:['#ff4500','#ff6a00','#ff8c00','#ffd000','#cc2200','#ff2200'], accent:'#ff4500', thin:'#ff450044' },
-    synthwave: { bg_light:'#f0e8ff', bg_dark:'#07020f', bg_paper:'#f8f4ff', bg_black:'#050010', colors:['#f72585','#7209b7','#3a0ca3','#4361ee','#4cc9f0','#b5179e'], accent:'#f72585', thin:'#7209b744' },
-    toxic:     { bg_light:'#f4ffe8', bg_dark:'#030800', bg_paper:'#f8fff0', bg_black:'#020600', colors:['#aaff00','#ccff00','#88ff44','#ffff00','#66ff00','#33ff00'], accent:'#aaff00', thin:'#aaff0044' },
+    mono:      { bg_light:'#ffffff', bg_dark:'#080a0f', bg_paper:'#f5f2eb', bg_black:'#000000', colors:['#ffffff','#e0e8f5','#00e5ff','#8a99ad','#b0c2de','#ffffff'], accent:'#00e5ff', thin:'#00e5ff66' },
+    cyber:     { bg_light:'#ffffff', bg_dark:'#030712', bg_paper:'#f5f2eb', bg_black:'#000000', colors:['#00f0ff','#ff0077','#ffe600','#00ff66','#8a2be2','#ff3300'], accent:'#00f0ff', thin:'#ff007766' },
+    neon:      { bg_light:'#ffffff', bg_dark:'#020d04', bg_paper:'#f5f2eb', bg_black:'#000000', colors:['#39ff14','#00ffcc','#ccff00','#00ff66','#70ff00','#ffff00'], accent:'#39ff14', thin:'#39ff1466' },
+    blood:     { bg_light:'#ffffff', bg_dark:'#0f0204', bg_paper:'#f5f2eb', bg_black:'#000000', colors:['#ff0033','#ff2a00','#cc0022','#ff5500','#ff0066','#ff7700'], accent:'#ff0033', thin:'#ff003366' },
+    ice:       { bg_light:'#ffffff', bg_dark:'#020814', bg_paper:'#f5f2eb', bg_black:'#000000', colors:['#00ffff','#7df9ff','#0099ff','#b0e0e6','#0055ff','#e0ffff'], accent:'#00ffff', thin:'#00ffff66' },
+    gold:      { bg_light:'#ffffff', bg_dark:'#120c01', bg_paper:'#f5f2eb', bg_black:'#000000', colors:['#ffd700','#ff9900','#ffcc00','#ff5500','#ffe57f','#ff8c00'], accent:'#ffd700', thin:'#ffd70066' },
+    vaporwave: { bg_light:'#ffffff', bg_dark:'#0f0318', bg_paper:'#f5f2eb', bg_black:'#000000', colors:['#ff71ce','#01cdfe','#05ffa1','#b967ff','#fffb96','#ff00aa'], accent:'#ff71ce', thin:'#ff71ce66' },
+    matrix:    { bg_light:'#ffffff', bg_dark:'#000c02', bg_paper:'#f5f2eb', bg_black:'#000000', colors:['#00ff00','#00ff66','#33ff33','#00cc44','#88ff00','#00ffbb'], accent:'#00ff00', thin:'#00ff0066' },
+    rust:      { bg_light:'#ffffff', bg_dark:'#140701', bg_paper:'#f5f2eb', bg_black:'#000000', colors:['#ff4500','#ff6600','#cc3300','#ff8800','#ffaa00','#e63900'], accent:'#ff4500', thin:'#ff450066' },
+    gundam:    { bg_light:'#ffffff', bg_dark:'#040a05', bg_paper:'#f5f2eb', bg_black:'#000000', colors:['#00ff66','#ffcc00','#ff3300','#00e5ff','#ffffff','#ff9900'], accent:'#ffcc00', thin:'#00ff6666' },
+    evangelion:{ bg_light:'#ffffff', bg_dark:'#0c0117', bg_paper:'#f5f2eb', bg_black:'#000000', colors:['#a855f7','#22c55e','#ff3b30','#f97316','#ffffff','#d8b4fe'], accent:'#ff3b30', thin:'#a855f766' },
+    sunset:    { bg_light:'#ffffff', bg_dark:'#140509', bg_paper:'#f5f2eb', bg_black:'#000000', colors:['#ff3366','#ff6b35','#f7c59f','#ff0055','#ff9900','#ff2e93'], accent:'#ff3366', thin:'#ff336666' },
+    ocean:     { bg_light:'#ffffff', bg_dark:'#010b1a', bg_paper:'#f5f2eb', bg_black:'#000000', colors:['#0099ff','#00e5ff','#0055ff','#00d2ff','#80d4ff','#0033aa'], accent:'#00e5ff', thin:'#00e5ff66' },
+    forest:    { bg_light:'#ffffff', bg_dark:'#020e06', bg_paper:'#f5f2eb', bg_black:'#000000', colors:['#00ff88','#2ecc71','#00b894','#55efc4','#00ffaa','#81ecec'], accent:'#00ff88', thin:'#00ff8866' },
+    nordic:    { bg_light:'#ffffff', bg_dark:'#0f141d', bg_paper:'#f5f2eb', bg_black:'#000000', colors:['#00d2ff','#38ef7d','#88c0d0','#b48ead','#ebcb8b','#81a1c1'], accent:'#00d2ff', thin:'#00d2ff66' },
+    sakura:    { bg_light:'#ffffff', bg_dark:'#17030d', bg_paper:'#f5f2eb', bg_black:'#000000', colors:['#ff007f','#ff66b2','#ffb3d9','#e60073','#ff3399','#ff80bf'], accent:'#ff007f', thin:'#ff007f66' },
+    lava:      { bg_light:'#ffffff', bg_dark:'#140200', bg_paper:'#f5f2eb', bg_black:'#000000', colors:['#ff2200','#ff6600','#ffcc00','#ff0044','#ff9900','#ff4400'], accent:'#ff2200', thin:'#ff220066' },
+    synthwave: { bg_light:'#ffffff', bg_dark:'#0b0114', bg_paper:'#f5f2eb', bg_black:'#000000', colors:['#ff007f','#9d4edd','#00f0ff','#ffea00','#ff00ff','#00e5ff'], accent:'#ff007f', thin:'#ff007f66' },
+    toxic:     { bg_light:'#ffffff', bg_dark:'#050f01', bg_paper:'#f5f2eb', bg_black:'#000000', colors:['#a3e635','#facc15','#4ade80','#84cc16','#00ff44','#ccff00'], accent:'#a3e635', thin:'#a3e63566' },
   };
 
-  // Fixed bg overrides for new bg modes (palette-independent)
+  // Fixed bg overrides for deep, saturated, non-washed-out backgrounds
   const BG_FIXED = {
-    midnight: '#070d1a', sepia: '#f2e2c0',
-    violet:   '#1a0835', jade:  '#041c0c',
-    wine:     '#280810', steel: '#081228',
-    copper:   '#2a1406', slate: '#101826'
+    midnight: '#030712', sepia: '#1c130b',
+    violet:   '#0d041c', jade:  '#01140a',
+    wine:     '#1a0208', steel: '#060d1a',
+    copper:   '#180b03', slate: '#0c1018'
   };
+
+  // ── Unified Theme Registry ───────────────────────────────────────────────────
+  const THEMES = {
+    'cyber-night':   { name: 'CYBER NIGHT',   palette: 'cyber',     bg: 'dark' },
+    'oled-neon':     { name: 'OLED NEON',     palette: 'neon',      bg: 'black' },
+    'matrix-void':   { name: 'MATRIX VOID',   palette: 'matrix',    bg: 'black' },
+    'blood-crimson': { name: 'BLOOD CRIMSON', palette: 'blood',     bg: 'wine' },
+    'frost-ice':     { name: 'FROST ICE',     palette: 'ice',       bg: 'midnight' },
+    'solar-gold':    { name: 'SOLAR GOLD',    palette: 'gold',      bg: 'dark' },
+    'retro-vapor':   { name: 'RETRO VAPOR',   palette: 'vaporwave', bg: 'violet' },
+    'nerv-protocol': { name: 'NERV PROTOCOL', palette: 'evangelion',bg: 'violet' },
+    'synth-night':   { name: 'SYNTH NIGHT',   palette: 'synthwave', bg: 'dark' },
+    'toxic-acid':    { name: 'TOXIC ACID',    palette: 'toxic',     bg: 'black' },
+    'gundam-tact':   { name: 'GUNDAM TACT',   palette: 'gundam',    bg: 'black' },
+    'volcanic-lava': { name: 'VOLCANIC LAVA', palette: 'lava',      bg: 'copper' },
+    'cyber-sunset':  { name: 'CYBER SUNSET',  palette: 'sunset',    bg: 'dark' },
+    'deep-ocean':    { name: 'DEEP OCEAN',    palette: 'ocean',     bg: 'midnight' },
+    'biosphere':     { name: 'BIOSPHERE',     palette: 'forest',    bg: 'jade' },
+    'sakura-night':  { name: 'SAKURA NIGHT',  palette: 'sakura',    bg: 'dark' },
+    'nordic-frost':  { name: 'NORDIC FROST',  palette: 'nordic',    bg: 'steel' },
+    'high-mono':     { name: 'HIGH-CONTRAST', palette: 'mono',      bg: 'black' },
+    'vintage-sepia': { name: 'VINTAGE SEPIA', palette: 'rust',      bg: 'sepia' },
+    'clean-studio':  { name: 'CLEAN STUDIO',  palette: 'mono',      bg: 'light' }
+  };
+
+  const THEME_KEYS = Object.keys(THEMES);
+
+  function onAudioBeatDetected(beatCount, intensity) {
+    if (!autopilotEnabled) return;
+
+    const setSliderUi = (id, val) => {
+      const el = document.getElementById(id);
+      if (el) el.value = String(val);
+      const valEl = document.getElementById(id.replace('-slider', '-val'));
+      if (valEl) valEl.textContent = String(val);
+    };
+
+    // Run active Autopilot step on every beat for high-energy audio response
+    const apFn = (typeof runAutopilotStep === 'function') ? runAutopilotStep : (typeof window._runAutopilotStep === 'function' ? window._runAutopilotStep : null);
+    if (apFn) {
+      try {
+        const apKey = (typeof AUTOPILOT_LEVELS !== 'undefined' && typeof autopilotLevelIdx !== 'undefined' && AUTOPILOT_LEVELS[autopilotLevelIdx]) ? AUTOPILOT_LEVELS[autopilotLevelIdx].key : 'medium';
+        apFn(apKey);
+      } catch (e) {
+        console.warn('Autopilot beat error:', e);
+      }
+    }
+
+    // 1. Every 4 beats (1 bar): Camera Jump Cuts & Focal Snaps on strong beats
+    if (beatCount % 4 === 0 && intensity > 0.45) {
+      const focalPoints = [
+        { zoom: 175, panX: -25, panY: -20, rot: -45 },
+        { zoom: 195, panX: 30,  panY: 25,  rot: 45  },
+        { zoom: 160, panX: 0,   panY: -30, rot: 90  },
+        { zoom: 210, panX: -35, panY: 30,  rot: -90 },
+        { zoom: 120, panX: 0,   panY: 0,   rot: 0   }
+      ];
+      const fp = focalPoints[Math.floor(Math.random() * focalPoints.length)];
+      state.cameraZoom = fp.zoom;
+      state.cameraPanX = fp.panX;
+      state.cameraPanY = fp.panY;
+      state.cameraRotate = fp.rot;
+
+      const setCamUi = (id, val, unit = '') => {
+        const el = document.getElementById(id);
+        if (el) el.value = String(val);
+        const valEl = document.getElementById(id.replace('-slider', '-val'));
+        if (valEl) valEl.textContent = `${val}${unit}`;
+      };
+      setCamUi('cam-zoom-slider', fp.zoom, '%');
+      setCamUi('cam-pan-x-slider', fp.panX);
+      setCamUi('cam-pan-y-slider', fp.panY);
+      setCamUi('cam-rotate-slider', fp.rot, '°');
+    }
+
+    // 2. Every 8 beats (2 bars): Generative Shape Mode & Theme Shuffling
+    if (beatCount % 8 === 0) {
+      if (!isBlockLocked('mode')) {
+        const shapes = ['stream', 'orbit', 'cyber-grid', 'lissajous', 'particles', 'hyper-ribbon'];
+        state.flowShape = shapes[Math.floor(Math.random() * shapes.length)];
+        const shapeSelect = document.getElementById('flow-shape-select');
+        if (shapeSelect) shapeSelect.value = state.flowShape;
+      }
+      if (!isBlockLocked('palette') && !isBlockLocked('bg')) {
+        stepTheme(1);
+      }
+    }
+
+    // 3. Every 16 beats (4 bars / phrase change): Procedural Seed Transition & Font Switch
+    if (beatCount % 16 === 0) {
+      if (!isBlockLocked('text')) {
+        const fonts = [
+          "'Orbitron', sans-serif",
+          "'Syncopate', sans-serif",
+          "'Share Tech Mono', monospace",
+          "'Rajdhani', sans-serif",
+          "'Goldman', sans-serif",
+          "'Chakra Petch', sans-serif",
+          "'Tektur', sans-serif"
+        ];
+        state.customFont = fonts[Math.floor(Math.random() * fonts.length)];
+        const fontSelect = document.getElementById('custom-font-select');
+        if (fontSelect) fontSelect.value = state.customFont;
+      }
+      if (!isBlockLocked('params')) {
+        const nextSeed = Math.floor(Math.random() * 99999999);
+        triggerFade(nextSeed);
+      }
+    }
+  }
+
+  function applyTheme(key) {
+    if (!THEMES[key]) return;
+    const t = THEMES[key];
+    state.currentTheme = key;
+    state.palette = t.palette;
+    state.bg = t.bg;
+    updateThemeUi(key);
+    if (!state.animating) draw(0, true);
+  }
+
+  function updateThemeUi(key) {
+    const t = THEMES[key || 'cyber-night'] || THEMES['cyber-night'];
+    const activeKey = key && THEMES[key] ? key : 'cyber-night';
+    state.currentTheme = activeKey;
+
+    const el1 = document.getElementById('theme-select');
+    const el2 = document.getElementById('top-theme-select');
+    if (el1) el1.value = activeKey;
+    if (el2) el2.value = activeKey;
+
+    const bgColor = getBgColor();
+    const colors = getColors();
+    const gradientCss = `linear-gradient(90deg, ${colors.slice(0, 4).join(', ')})`;
+
+    const bgDot1 = document.getElementById('theme-bg-dot');
+    const palBar1 = document.getElementById('theme-palette-bar');
+    const nameDisp1 = document.getElementById('theme-name-display');
+    if (bgDot1) bgDot1.style.background = bgColor;
+    if (palBar1) palBar1.style.background = gradientCss;
+    if (nameDisp1) nameDisp1.textContent = t.name;
+
+    const bgDot2 = document.getElementById('top-theme-bg-dot');
+    const palBar2 = document.getElementById('top-theme-palette-bar');
+    const nameDisp2 = document.getElementById('top-theme-name-display');
+    if (bgDot2) bgDot2.style.background = bgColor;
+    if (palBar2) palBar2.style.background = gradientCss;
+    if (nameDisp2) nameDisp2.textContent = t.name;
+  }
 
   function getPalette() { return PALETTES[state.palette]; }
   function getBgColor() { return BG_FIXED[state.bg] ?? getPalette()[`bg_${state.bg}`]; }
   function getColors() { return getPalette().colors; }
   function getAccent() { return getPalette().accent; }
   function getThin() { return getPalette().thin; }
-  function lw(base = 1) { return base * (state.weight * 0.28 + 0.3) * (offCanvas.width / 1280); }
+  function lw(base = 1) { return base * (state.weight * 0.084 + 0.3) * (offCanvas.width / 1280); }
   function lf(base = 8) { return Math.max(11, Math.floor(base * (offCanvas.width / 1280))); }
 
   // ── HUD Strings ────────────────────────────────────────────────────────────
@@ -1625,7 +1823,7 @@
     const W = offCanvas.width, H = offCanvas.height;
     const colors = getColors();
     const c = comp || buildComposition(W, H);
-    const cFactor = state.chaos / 30.0;
+    const cFactor = (state.chaos * 0.4) / 30.0;
 
     // 1. Structural Lines & Guide Grid (Continuity and Alignment)
     if (!isDetailPass) {
@@ -1884,7 +2082,7 @@
     const colors = getColors();
     const c = comp || buildComposition(W, H);
     const grid = Math.floor(rngRange(20, 55));
-    const cFactor = state.chaos / 30.0;
+    const cFactor = (state.chaos * 0.4) / 30.0;
 
     // 1. Connection Traces & System Bus (Continuity & Continuation)
     if (!isDetailPass) {
@@ -2158,7 +2356,7 @@
     const W = offCanvas.width, H = offCanvas.height;
     const colors = getColors();
     const c = comp || buildComposition(W, H);
-    const cFactor = state.chaos / 30.0;
+    const cFactor = (state.chaos * 0.4) / 30.0;
 
     // 1. Data bridges between anchors (Continuity)
     if (!isDetailPass) {
@@ -2391,7 +2589,7 @@
     const W = offCanvas.width, H = offCanvas.height;
     const colors = getColors();
     const weightFactor = state.weight * 0.28 + 0.3;
-    const cFactor = state.chaos / 30.0;
+    const cFactor = (state.chaos * 0.4) / 30.0;
     const c = comp || buildComposition(W, H);
 
     // 1. Horizontal Glitch Scanline Bars aligned to anchor Y positions
@@ -2532,7 +2730,7 @@
     const W = offCanvas.width, H = offCanvas.height;
     const colors = getColors();
     const grid = Math.floor(rngRange(28, 65));
-    const cFactor = state.chaos / 30.0;
+    const cFactor = (state.chaos * 0.4) / 30.0;
     const c = comp || buildComposition(W, H);
 
     // 1. Grid Background (snaps perfectly at Chaos = 0)
@@ -2752,7 +2950,7 @@
     const numEl = isDetailPass
       ? rngInt(5, Math.min(10 + state.density * 1.5, 18))
       : rngInt(12 + state.density * 2.5, Math.min(30 + state.density * 5, 35));
-    const cFactor = state.chaos / 30.0;
+    const cFactor = (state.chaos * 0.4) / 30.0;
 
     for (let i = 0; i < numEl; i++) {
       const anchor = c.anchors[i % c.anchors.length];
@@ -2840,185 +3038,230 @@
     }
   }
 
-  // ── FLOW FIELD (new) ────────────────────────────────────────────────────────
+  // ── ADVANCED FLOW FIELD GENERATOR ───────────────────────────────────────────
   function drawFlow(t = 0, isDetailPass = false) {
     const W = offCanvas.width, H = offCanvas.height;
     const colors = getColors();
     const c = comp || buildComposition(W, H);
-    const scale = 0.002 + state.complexity * 0.0008;
-    const numParticles = isDetailPass ? 10 + state.density * 3 : 20 + state.density * 10;
-    const steps = isDetailPass ? 10 + state.complexity : 15 + state.complexity * 2;
+    
+    // Parametric scales
+    const effectiveChaos = state.chaos * 0.4;
+    const freqFactor = (state.flowFrequency || 50) / 50.0;
+    const turbFactor = (state.flowTurbulence || 50) / 50.0;
+    const cFactor = effectiveChaos / 30.0;
+    const scale = (0.0012 + state.complexity * 0.0005) * freqFactor;
+    
+    const numParticles = isDetailPass ? 25 + state.density * 6 : 55 + state.density * 22;
+    const steps = isDetailPass ? 45 + state.complexity * 3 : 95 + state.complexity * 5;
     const currentSpeed = (state.animating && typeof state.currentAnimSpeed === 'number') ? state.currentAnimSpeed : 15;
-    const speed = (2.5 + state.chaos * 0.5) * (1 + (currentSpeed - 15) / 30);
-    const cFactor = state.chaos / 30.0;
+    const speed = (1.6 + effectiveChaos * 0.3) * (1 + (currentSpeed - 15) / 45);
 
-    const angleMultiplier = 6 + cFactor * 15;
-    const ax0 = c.anchors[0].x;
-    const ay0 = c.anchors[0].y;
+    const shapeMode = state.flowShape || 'stream';
 
-    for (let p = 0; p < numParticles; p++) {
-      let px, py;
-      const emitter = c.anchors[1 + (p % (c.anchors.length - 1))];
-      px = emitter.x + (rng() - 0.5) * emitter.r * 0.3;
-      py = emitter.y + (rng() - 0.5) * emitter.r * 0.3;
-      
-      const color = rngPick(colors);
-      const particleStyle = rngPick(['line', 'bubble', 'chevron-arrow', 'packet']);
-      offCtx.strokeStyle = color;
-      offCtx.lineWidth = lw(0.2 + rng() * 0.6);
-      offCtx.globalAlpha = rngRange(0.2, 0.7);
-      offCtx.beginPath(); offCtx.moveTo(px, py);
-      
-      // Real-time procedural vector field equation selection
-      const fieldType = rngPick(['vortex', 'lorenz', 'trig_wave']);
-      
-      let lastVx = 0, lastVy = 0;
-      for (let s = 0; s < steps; s++) {
-        let vx = 0, vy = 0;
+    if (shapeMode === 'orbit') {
+      // 1. ORBITAL VORTEX LOGARITHMIC SPIRALS & ATTRACTOR RINGS (Expanded Screen Coverage)
+      const numOrbits = isDetailPass ? 6 : 12 + Math.floor(state.density * 0.6);
+      for (let o = 0; o < numOrbits; o++) {
+        const anchor = c.anchors[o % c.anchors.length];
+        const baseRadius = (50 + o * 55 + state.complexity * 4) * freqFactor;
+        const color = colors[o % colors.length];
         
-        if (fieldType === 'vortex') {
-          // Vortex rotation field around anchors
-          for (let k = 0; k < c.anchors.length; k++) {
-            const dx = c.anchors[k].x - px;
-            const dy = c.anchors[k].y - py;
-            const dist = Math.hypot(dx, dy) + 1;
-            const force = 1 / dist;
-            // Radial attraction (closure) + tangent vortex rotation
-            vx += (dx / dist) * 0.25 - (dy / dist) * 0.75 * force * 150;
-            vy += (dy / dist) * 0.25 + (dx / dist) * 0.75 * force * 150;
-          }
-        } else if (fieldType === 'lorenz') {
-          // Lorenz-inspired chaotic projection field equations
-          const rx = (px - W / 2) * 0.05;
-          const ry = (py - H / 2) * 0.05;
-          const rz = 25 + Math.sin(t * 0.2) * 10;
-          const sigma = 10;
-          const rho = 28;
-          const beta = 8/3;
+        offCtx.strokeStyle = color;
+        offCtx.lineWidth = lw(0.5 + (o % 3) * 0.6);
+        offCtx.globalAlpha = rngRange(0.75, 1.0);
+        offCtx.beginPath();
+
+        const points = 80 + Math.floor(state.complexity * 1.2);
+        for (let i = 0; i <= points; i++) {
+          const ang = (i / points) * Math.PI * 2 + t * (0.05 + (o % 3) * 0.03) * (o % 2 === 0 ? 1 : -1);
+          const noiseR = valueNoise(anchor.x * scale + Math.cos(ang) * turbFactor, anchor.y * scale + Math.sin(ang) * turbFactor + t * 0.06);
+          const r = baseRadius * (1 + (noiseR - 0.5) * 0.45 * turbFactor) + Math.sin(ang * 4 + t * 0.2) * cFactor * 25;
+          const x = anchor.x + Math.cos(ang) * r;
+          const y = anchor.y + Math.sin(ang) * r;
           
-          // Lorenz system coordinates derivatives
-          const dxVal = sigma * (ry - rx);
-          const dyVal = rx * (rho - rz) - ry;
-          vx = dxVal * 1.5;
-          vy = dyVal * 1.5;
-        } else {
-          // Trigonometric wave resonance field equations
-          vx = Math.sin(px * scale * 5.0 + t * 0.5) * 1.5 + Math.cos(py * scale * 2.0 - t * 0.2);
-          vy = Math.cos(px * scale * 2.0 - t * 0.3) * 1.5 + Math.sin(py * scale * 5.0 + t * 0.4);
+          if (i === 0) offCtx.moveTo(x, y);
+          else offCtx.lineTo(x, y);
         }
+        offCtx.closePath();
+        offCtx.stroke();
         
-        // Blend with value noise for organic high-frequency turbulence
-        const n = valueNoise(px * scale + t * 0.35, py * scale + t * 0.28);
-        const noiseAngle = n * Math.PI * angleMultiplier + t * 1.8;
-        const nx = Math.cos(noiseAngle);
-        const ny = Math.sin(noiseAngle);
-        
-        vx = vx * Math.max(0, 1 - cFactor) + nx * cFactor;
-        vy = vy * Math.max(0, 1 - cFactor) + ny * cFactor;
-        
-        const len = Math.hypot(vx, vy);
-        if (len > 0) {
-          vx /= len;
-          vy /= len;
+        // Rotating orbital vector nodes
+        if (state.complexity > 3 && rng() < 0.7) {
+          const nodeAng = t * 0.12 + o;
+          const nx = anchor.x + Math.cos(nodeAng) * baseRadius;
+          const ny = anchor.y + Math.sin(nodeAng) * baseRadius;
+          offCtx.fillStyle = color;
+          offCtx.beginPath();
+          offCtx.arc(nx, ny, lw(3.0 + (o % 2) * 1.8), 0, Math.PI * 2);
+          offCtx.fill();
         }
-        
-        let stepSpeed = speed;
-        stepSpeed *= (1 + (rng() - 0.5) * cFactor * 0.4);
-        px += vx * stepSpeed;
-        py += vy * stepSpeed;
-        lastVx = vx;
-        lastVy = vy;
-        
-        if (px < -20 || px > W + 20 || py < -20 || py > H + 20) break;
-        offCtx.lineTo(px, py);
+      }
+    } else if (shapeMode === 'cyber-grid') {
+      // 2. CYBER VECTOR GRID TELEMETRY & PACKET FLOW (Full Screen Grid)
+      const gridSpacing = Math.floor(W / (10 + state.complexity * 0.5));
+      offCtx.strokeStyle = getAccent();
+      offCtx.lineWidth = lw(0.65);
+      offCtx.globalAlpha = 0.85;
+      offCtx.beginPath();
+
+      for (let gx = gridSpacing / 2; gx < W; gx += gridSpacing) {
+        for (let gy = gridSpacing / 2; gy < H; gy += gridSpacing) {
+          const n = valueNoise(gx * scale * freqFactor + t * 0.03, gy * scale * freqFactor + t * 0.03);
+          const ang = n * Math.PI * 4 * turbFactor + t * 0.12;
+          const vx = Math.cos(ang);
+          const vy = Math.sin(ang);
+          const arrowLen = gridSpacing * 0.95;
+
+          const endX = gx + vx * arrowLen;
+          const endY = gy + vy * arrowLen;
+
+          offCtx.moveTo(gx, gy);
+          offCtx.lineTo(endX, endY);
+
+          // Data packet square at node
+          if (rng() < 0.35) {
+            offCtx.fillStyle = rngPick(colors);
+            const sq = lw(3.5);
+            offCtx.fillRect(gx - sq / 2, gy - sq / 2, sq, sq);
+          }
+        }
       }
       offCtx.stroke();
-      
-      offCtx.save();
-      offCtx.globalAlpha = 0.85;
-      if (particleStyle === 'bubble') {
-        offCtx.beginPath(); offCtx.arc(px, py, lw(2.4), 0, Math.PI * 2); offCtx.stroke();
-        offCtx.beginPath(); offCtx.arc(px, py, lw(0.8), 0, Math.PI * 2); offCtx.fillStyle = color; offCtx.fill();
-      } else if (particleStyle === 'chevron-arrow') {
-        const arrowSize = lw(5.5);
-        const ang = Math.atan2(lastVy, lastVx);
-        offCtx.translate(px, py);
-        offCtx.rotate(ang);
+      offCtx.globalAlpha = 1.0;
+    } else if (shapeMode === 'lissajous') {
+      // 3. SUPER-LISSAJOUS HARMONIC ROSES & FREQUENCY LOOPS (Full Screen Harmonics)
+      const numHarmonics = isDetailPass ? 5 : 10 + Math.floor(state.density * 0.5);
+      for (let h = 0; h < numHarmonics; h++) {
+        const anchor = c.anchors[h % c.anchors.length];
+        const a = (1 + h * 2) * freqFactor;
+        const b = (2 + h * 3) * freqFactor;
+        const delta = t * (0.06 + h * 0.02);
+        const radius = (100 + h * 75) * (1 + cFactor * 0.4) * freqFactor;
+        const color = colors[h % colors.length];
+
+        offCtx.strokeStyle = color;
+        offCtx.lineWidth = lw(0.6 + (h % 2) * 0.7);
+        offCtx.globalAlpha = rngRange(0.75, 1.0);
         offCtx.beginPath();
-        offCtx.moveTo(-arrowSize, -arrowSize * 0.6);
-        offCtx.lineTo(0, 0);
-        offCtx.lineTo(-arrowSize, arrowSize * 0.6);
-        offCtx.stroke();
-      } else if (particleStyle === 'packet') {
-        const sq = lw(3);
-        offCtx.fillStyle = color;
-        offCtx.fillRect(px - sq/2, py - sq/2, sq, sq);
-        if (state.complexity > 8 && rng() < 0.25) {
-          offCtx.strokeStyle = color; offCtx.lineWidth = lw(0.3);
-          offCtx.strokeRect(px - sq, py - sq, sq * 2, sq * 2);
+
+        const samples = 140 + state.complexity * 3;
+        for (let i = 0; i <= samples; i++) {
+          const stepAng = (i / samples) * Math.PI * 2;
+          const lx = Math.sin(a * stepAng + delta) * radius;
+          const ly = Math.sin(b * stepAng) * radius;
+
+          // Add subtle turbulence displacement
+          const n = valueNoise(lx * scale, ly * scale + t * 0.05);
+          const dx = lx + (n - 0.5) * 35 * turbFactor;
+          const dy = ly + (n - 0.5) * 35 * turbFactor;
+
+          const px = anchor.x + dx;
+          const py = anchor.y + dy;
+
+          if (i === 0) offCtx.moveTo(px, py);
+          else offCtx.lineTo(px, py);
         }
+        offCtx.closePath();
+        offCtx.stroke();
       }
-      offCtx.restore();
-      offCtx.globalAlpha = 1; state.elementCount++;
+    } else if (shapeMode === 'particles') {
+      // 4. ENERGY CLUSTER SWARMS & TRAIL VECTORS (Screen Wide Swarm)
+      const clusterCount = isDetailPass ? 25 : 65 + state.density * 10;
+      for (let p = 0; p < clusterCount; p++) {
+        const emitter = c.anchors[p % c.anchors.length];
+        const radius = (30 + (p * 25) % (W * 0.45)) * freqFactor;
+        const ang = (p * 0.35) + t * (0.08 + (p % 5) * 0.02);
+        const n = valueNoise(p * 0.1 + t * 0.05, ang * 0.5);
+        const dist = radius + (n - 0.5) * 60 * turbFactor;
+
+        const px = emitter.x + Math.cos(ang) * dist;
+        const py = emitter.y + Math.sin(ang) * dist;
+        const color = colors[p % colors.length];
+
+        offCtx.fillStyle = color;
+        offCtx.strokeStyle = color;
+        offCtx.globalAlpha = rngRange(0.8, 1.0);
+
+        // Core particle spark
+        const pSize = lw(2.2 + (p % 3) * 1.6);
+        offCtx.beginPath();
+        offCtx.arc(px, py, pSize, 0, Math.PI * 2);
+        offCtx.fill();
+
+        // Velocity trail vector
+        const trailLen = (15 + state.complexity * 1.2) * speed * 0.25;
+        const tang = ang + Math.PI / 2;
+        offCtx.lineWidth = lw(0.9);
+        offCtx.beginPath();
+        offCtx.moveTo(px, py);
+        offCtx.lineTo(px - Math.cos(tang) * trailLen, py - Math.sin(tang) * trailLen);
+        offCtx.stroke();
+      }
+    } else if (shapeMode === 'hyper-ribbon') {
+      // 5. HYPER RIBBONS (Full-Screen Traversing Parallel Vector Strips)
+      const numRibbons = isDetailPass ? 5 : 12 + Math.floor(state.density * 0.4);
+      for (let r = 0; r < numRibbons; r++) {
+        const color = colors[r % colors.length];
+
+        offCtx.strokeStyle = color;
+        offCtx.lineWidth = lw(0.9);
+        offCtx.globalAlpha = rngRange(0.7, 0.95);
+
+        let px = (r / numRibbons) * W + (rng() - 0.5) * 100;
+        let py = ((r * 3) % numRibbons) / numRibbons * H + (rng() - 0.5) * 100;
+        
+        offCtx.beginPath();
+        offCtx.moveTo(px, py);
+
+        for (let s = 0; s < steps; s++) {
+          const n = valueNoise(px * scale + t * 0.04, py * scale + t * 0.03 + r);
+          const ang = n * Math.PI * 4 * turbFactor + (r * 0.5);
+          const vx = Math.cos(ang) * speed * 1.1;
+          const vy = Math.sin(ang) * speed * 1.1;
+
+          px += vx;
+          py += vy;
+
+          offCtx.lineTo(px, py);
+        }
+        offCtx.stroke();
+      }
+    }
+
+    // Default Streamlines (Full Screen Flowing Field)
+    if (shapeMode === 'stream' || (!isDetailPass && state.density > 2)) {
+      const angleMultiplier = 6 + cFactor * 15;
+      for (let p = 0; p < numParticles; p++) {
+        let px = (p / numParticles) * W + (rng() - 0.5) * 80;
+        let py = (((p * 7) % numParticles) / numParticles) * H + (rng() - 0.5) * 80;
+
+        const color = rngPick(colors);
+        offCtx.strokeStyle = color;
+        offCtx.lineWidth = lw(0.55 + rng() * 0.85);
+        offCtx.globalAlpha = rngRange(0.75, 1.0);
+        offCtx.beginPath();
+        offCtx.moveTo(px, py);
+
+        for (let s = 0; s < steps; s++) {
+          const n = valueNoise(px * scale + t * 0.08 * freqFactor, py * scale + t * 0.06 * freqFactor);
+          const noiseAngle = n * Math.PI * angleMultiplier * turbFactor + t * 0.3;
+          const vx = Math.cos(noiseAngle) * speed;
+          const vy = Math.sin(noiseAngle) * speed;
+
+          px += vx;
+          py += vy;
+
+          if (px < -40 || px > W + 40 || py < -40 || py > H + 40) break;
+          offCtx.lineTo(px, py);
+        }
+        offCtx.stroke();
+        state.elementCount++;
+      }
     }
 
     if (!isDetailPass) {
-      if (state.complexity > 5) {
-        const arrowGrid = Math.floor(W / (6 + state.complexity * 0.4));
-        offCtx.strokeStyle = getAccent(); offCtx.lineWidth = lw(0.4); offCtx.globalAlpha = 0.22;
-        offCtx.beginPath();
-        for (let gx = arrowGrid; gx < W; gx += arrowGrid) {
-          for (let gy = arrowGrid; gy < H; gy += arrowGrid) {
-            const dx = ax0 - gx;
-            const dy = ay0 - gy;
-            const dist = Math.hypot(dx, dy);
-
-            let ux = dist > 0 ? dx / dist : 0;
-            let uy = dist > 0 ? dy / dist : 0;
-            const sx = -uy;
-            const sy = ux;
-            
-            let fx = ux * 0.7 + sx * 0.3;
-            let fy = uy * 0.7 + sy * 0.3;
-
-            const n = valueNoise(gx * scale, gy * scale);
-            const noiseAngle = n * Math.PI * angleMultiplier;
-            const nx = Math.cos(noiseAngle);
-            const ny = Math.sin(noiseAngle);
-
-            let vx = fx * Math.max(0, 1 - cFactor) + nx * cFactor;
-            let vy = fy * Math.max(0, 1 - cFactor) + ny * cFactor;
-            
-            const len = Math.hypot(vx, vy);
-            if (len > 0) {
-              vx /= len;
-              vy /= len;
-            }
-
-            const arrowLen = arrowGrid * 0.45;
-            let ax = gx + (rng() - 0.5) * cFactor * 20;
-            let ay = gy + (rng() - 0.5) * cFactor * 20;
-            
-            const endX = ax + vx * arrowLen;
-            const endY = ay + vy * arrowLen;
-            
-            offCtx.moveTo(ax, ay);
-            offCtx.lineTo(endX, endY);
-            
-            if (state.complexity > 14) {
-              const arrowSize = lw(3);
-              const angle = Math.atan2(vy, vx);
-              offCtx.moveTo(endX, endY);
-              offCtx.lineTo(endX - arrowSize * Math.cos(angle - Math.PI/6), endY - arrowSize * Math.sin(angle - Math.PI/6));
-              offCtx.moveTo(endX, endY);
-              offCtx.lineTo(endX - arrowSize * Math.cos(angle + Math.PI/6), endY - arrowSize * Math.sin(angle + Math.PI/6));
-            }
-          }
-        }
-        offCtx.stroke();
-        offCtx.globalAlpha = 1;
-      }
-      drawHudTexts(W, H, t); drawCornerElements(W, H, colors);
+      drawHudTexts(W, H, t);
+      drawCornerElements(W, H, colors);
     }
   }
 
@@ -3627,52 +3870,11 @@
   }
 
   function drawHudTexts(W, H, t = 0) {
-    if (state.textAmount === 0 && state.customTextAmount === 0) return;
+    if (!state.customTextAmount || !state.customText) return;
     
     const wasDrawingOverlay = offCtx.isDrawingOverlay;
     offCtx.isDrawingOverlay = true;
     try {
-      // 1. Draw regular HUD texts
-      if (state.textAmount > 0) {
-        const amount = state.textAmount;
-        const fs = Math.max(11, Math.floor(W / 90));
-        const sfs = Math.max(9, Math.floor(W / 120));
-        const numLabels = rngInt(Math.floor(amount * 0.5), amount * 2);
-        for (let i = 0; i < numLabels; i++) {
-          offCtx.fillStyle = rngPick(getColors()); offCtx.globalAlpha = rngRange(0.25, 0.75);
-          offCtx.font = `${rngPick([sfs, fs])}px 'Share Tech Mono', monospace`;
-          let tx = rngRange(W * 0.01, W * 0.87);
-          let ty = rngRange(H * 0.04, H * 0.96);
-          // Snap to 12x12 grid when chaos is low
-          const gridSnapFactor = Math.max(0, 1 - state.chaos / 40.0);
-          if (gridSnapFactor > 0) {
-            const snappedX = Math.round(tx / (W / 12)) * (W / 12);
-            const snappedY = Math.round(ty / (H / 12)) * (H / 12);
-            tx = tx + (snappedX - tx) * gridSnapFactor;
-            ty = ty + (snappedY - ty) * gridSnapFactor;
-          }
-          offCtx.fillText(rngPick([...HUD_TEXTS, ...TECH_STRINGS]), tx, ty);
-          offCtx.globalAlpha = 1; state.elementCount++;
-        }
-        if (amount > 3) {
-          offCtx.font = `${Math.floor(fs * 1.6)}px 'Share Tech Mono', monospace`;
-          for (let i = 0; i < rngInt(2, amount); i++) {
-            offCtx.fillStyle = rngPick(getColors()); offCtx.globalAlpha = rngRange(0.4, 0.9);
-            let tx = rngRange(W * 0.05, W * 0.9);
-            let ty = rngRange(H * 0.05, H * 0.95);
-            // Snap to 12x12 grid when chaos is low
-            const gridSnapFactor = Math.max(0, 1 - state.chaos / 40.0);
-            if (gridSnapFactor > 0) {
-              const snappedX = Math.round(tx / (W / 12)) * (W / 12);
-              const snappedY = Math.round(ty / (H / 12)) * (H / 12);
-              tx = tx + (snappedX - tx) * gridSnapFactor;
-              ty = ty + (snappedY - ty) * gridSnapFactor;
-            }
-            offCtx.fillText(rngPick(SYMBOLS), tx, ty);
-            offCtx.globalAlpha = 1;
-          }
-        }
-      }
 
       // 2. Draw custom HUD texts
       if (state.customTextAmount > 0 && state.customText) {
@@ -3756,7 +3958,7 @@
 
   function drawGlobalScaffold(W, H, colors) {
     if (!comp) return;
-    const cFactor = state.chaos / 30.0;
+    const cFactor = (state.chaos * 0.4) / 30.0;
     const thin = getThin();
     const margin = lw(20);
 
@@ -3877,7 +4079,7 @@
     const c = comp || buildComposition(W, H);
     const acc = getAccent();
     const thin = getThin();
-    const cFactor = state.chaos / 30.0;
+    const cFactor = (state.chaos * 0.4) / 30.0;
 
     // 1. Tactical Hex Grid & Radar Sweep (Centered on Anchor 0)
     const isGridActive = state.complexity > 7;
@@ -4855,7 +5057,7 @@
 
     // Build composition guide for this seed — all draw modes use this
     comp = buildComposition(W, H);
-    const cFactor = state.chaos / 30.0;
+    const cFactor = (state.chaos * 0.4) / 30.0;
 
     const oldDensity = state.density;
     const oldComplexity = state.complexity;
@@ -4871,20 +5073,7 @@
     offCtx.fillStyle = getBgColor(); offCtx.fillRect(0, 0, W, H);
 
     function runDrawMode(time, isDetailPass = false) {
-      switch (state.mode) {
-        case 'vectorheart': drawVectorheart(time, isDetailPass); break;
-        case 'circuit':     drawCircuit(time, isDetailPass); break;
-        case 'hud':         drawHud(time, isDetailPass); break;
-        case 'glitch':      drawGlitch(time, isDetailPass); break;
-        case 'blueprint':   drawBlueprint(time, isDetailPass); break;
-        case 'chaos':       drawChaos(time, isDetailPass); break;
-        case 'flow':        drawFlow(time, isDetailPass); break;
-        case 'sacred':      drawSacred(time, isDetailPass); break;
-        case 'glyph':       drawGlyph(time, isDetailPass); break;
-        case 'volumetric':  drawVolumetric(time, isDetailPass); break;
-        case 'gundam':      drawGundam(time, isDetailPass); break;
-        case 'evangelion':  drawEvangelion(time, isDetailPass); break;
-      }
+      drawFlow(time, isDetailPass);
     }
 
     // Global base pass — moderate density, seeds the composition layer
@@ -4936,7 +5125,24 @@
     // Inject generated SVG elements into our main SVG viewport container
     const svgEl = document.getElementById('main-svg');
     if (svgEl) {
-      svgEl.setAttribute('viewBox', `0 0 ${W} ${H}`);
+      const rawZoom = (state.cameraZoom || 100) / 100.0;
+      const zoom = isNaN(rawZoom) || rawZoom < 1.0 ? 1.0 : rawZoom;
+      const rawPanX = ((state.cameraPanX || 0) / 100.0) * W;
+      const panX = isNaN(rawPanX) ? 0 : rawPanX;
+      const rawPanY = ((state.cameraPanY || 0) / 100.0) * H;
+      const panY = isNaN(rawPanY) ? 0 : rawPanY;
+
+      const vW = W / zoom;
+      const vH = H / zoom;
+      const vX = (W - vW) / 2 - panX / zoom;
+      const vY = (H - vH) / 2 - panY / zoom;
+
+      const safeVx = isNaN(vX) ? 0 : vX;
+      const safeVy = isNaN(vY) ? 0 : vY;
+      const safeVw = isNaN(vW) ? W : vW;
+      const safeVh = isNaN(vH) ? H : vH;
+
+      svgEl.setAttribute('viewBox', `${safeVx.toFixed(2)} ${safeVy.toFixed(2)} ${safeVw.toFixed(2)} ${safeVh.toFixed(2)}`);
       svgEl.style.cursor = 'default';
       
       // Dynamic noise film grain filter
@@ -5159,7 +5365,16 @@
 
       svgEl.querySelector('#svg-defs').innerHTML = allDefs;
       svgEl.querySelector('#svg-bg').setAttribute('fill', getBgColor());
-      svgEl.querySelector('#render-group').setAttribute('filter', filterAttrVal);
+
+      const renderGroup = svgEl.querySelector('#render-group');
+      renderGroup.setAttribute('filter', filterAttrVal);
+      const rot = state.cameraRotate || 0;
+      if (rot !== 0) {
+        renderGroup.setAttribute('transform', `rotate(${rot} ${W/2} ${H/2})`);
+      } else {
+        renderGroup.removeAttribute('transform');
+      }
+
       svgEl.querySelector('#current-frame').setAttribute('filter', currentFilterAttrVal);
 
       // Build symmetry markup
@@ -5322,7 +5537,7 @@
     draw(state.animTime);
     fadeAlpha = 1;
     fadeStartTime = performance.now();
-    fadeDurationMs = 100 + state.fadeDuration * 190; // 290ms .. 2000ms
+    fadeDurationMs = 800 + state.fadeDuration * 270; // 1070ms .. 3500ms  (era 290ms..2000ms)
   }
 
   function applyFadeOverlay(timestamp) {
@@ -5351,7 +5566,10 @@
     includeAudio: false,
     audioDestNode: null,
     audioCompressor: null,
-    audioNormGain: null
+    audioNormGain: null,
+    isCapturingFrame: false,
+    lastCaptureAt: 0,
+    captureIntervalMs: 34   // ~30 fps capture throttle
   };
 
   const liveOutputState = {
@@ -5490,41 +5708,146 @@
     }, 1000);
   }
 
+  function renderOffCtxToCanvas(offCtx, targetCtx, targetW, targetH) {
+    const baseScaleX = targetW / offCtx.width;
+    const baseScaleY = targetH / offCtx.height;
+
+    const rawZoom = (state.cameraZoom || 100) / 100.0;
+    const zoom = isNaN(rawZoom) || rawZoom < 1.0 ? 1.0 : rawZoom;
+    const rawPanX = ((state.cameraPanX || 0) / 100.0) * offCtx.width;
+    const panX = isNaN(rawPanX) ? 0 : rawPanX;
+    const rawPanY = ((state.cameraPanY || 0) / 100.0) * offCtx.height;
+    const panY = isNaN(rawPanY) ? 0 : rawPanY;
+    const rawRot = (state.cameraRotate || 0);
+    const rotateRad = isNaN(rawRot) ? 0 : (rawRot * Math.PI) / 180.0;
+
+    targetCtx.save();
+    targetCtx.fillStyle = getBgColor();
+    targetCtx.fillRect(0, 0, targetW, targetH);
+
+    targetCtx.translate(targetW / 2 + panX * baseScaleX, targetH / 2 + panY * baseScaleY);
+    if (rotateRad !== 0) targetCtx.rotate(rotateRad);
+    targetCtx.scale(baseScaleX * zoom, baseScaleY * zoom);
+    targetCtx.translate(-offCtx.width / 2, -offCtx.height / 2);
+
+    const allElements = [...offCtx.elements, ...offCtx.overlayElements];
+
+    for (let i = 0; i < allElements.length; i++) {
+      const nodeStr = allElements[i];
+      if (nodeStr.startsWith('<path')) {
+        const dMatch = nodeStr.match(/d="([^"]+)"/);
+        if (!dMatch) continue;
+        const d = dMatch[1];
+
+        const fillMatch = nodeStr.match(/fill="([^"]+)"/);
+        const strokeMatch = nodeStr.match(/stroke="([^"]+)"/);
+        const strokeWidthMatch = nodeStr.match(/stroke-width="([^"]+)"/);
+        const opacityMatch = nodeStr.match(/opacity="([^"]+)"/);
+        const transformMatch = nodeStr.match(/transform="matrix\(([^)]+)\)"/);
+
+        targetCtx.save();
+        if (transformMatch) {
+          const m = transformMatch[1].split(',').map(Number);
+          targetCtx.transform(m[0], m[1], m[2], m[3], m[4], m[5]);
+        }
+        if (opacityMatch) {
+          targetCtx.globalAlpha = parseFloat(opacityMatch[1]);
+        }
+
+        const path2d = new Path2D(d);
+
+        if (fillMatch && fillMatch[1] !== 'none') {
+          targetCtx.fillStyle = fillMatch[1];
+          targetCtx.fill(path2d);
+        }
+
+        if (strokeMatch && strokeMatch[1] !== 'none') {
+          targetCtx.strokeStyle = strokeMatch[1];
+          targetCtx.lineWidth = strokeWidthMatch ? parseFloat(strokeWidthMatch[1]) : 1;
+          targetCtx.stroke(path2d);
+        }
+        targetCtx.restore();
+      } else if (nodeStr.startsWith('<rect')) {
+        const xMatch = nodeStr.match(/x="([^"]+)"/);
+        const yMatch = nodeStr.match(/y="([^"]+)"/);
+        const wMatch = nodeStr.match(/width="([^"]+)"/);
+        const hMatch = nodeStr.match(/height="([^"]+)"/);
+        const fillMatch = nodeStr.match(/fill="([^"]+)"/);
+        const strokeMatch = nodeStr.match(/stroke="([^"]+)"/);
+        const strokeWidthMatch = nodeStr.match(/stroke-width="([^"]+)"/);
+        const opacityMatch = nodeStr.match(/opacity="([^"]+)"/);
+
+        if (!xMatch || !yMatch || !wMatch || !hMatch) continue;
+
+        targetCtx.save();
+        if (opacityMatch) {
+          targetCtx.globalAlpha = parseFloat(opacityMatch[1]);
+        }
+
+        const x = parseFloat(xMatch[1]);
+        const y = parseFloat(yMatch[1]);
+        const w = parseFloat(wMatch[1]);
+        const h = parseFloat(hMatch[1]);
+
+        if (fillMatch && fillMatch[1] !== 'none' && !fillMatch[1].includes('url(')) {
+          targetCtx.fillStyle = fillMatch[1];
+          targetCtx.fillRect(x, y, w, h);
+        }
+        if (strokeMatch && strokeMatch[1] !== 'none') {
+          targetCtx.strokeStyle = strokeMatch[1];
+          targetCtx.lineWidth = strokeWidthMatch ? parseFloat(strokeWidthMatch[1]) : 1;
+          targetCtx.strokeRect(x, y, w, h);
+        }
+        targetCtx.restore();
+      } else if (nodeStr.startsWith('<text')) {
+        const xMatch = nodeStr.match(/x="([^"]+)"/);
+        const yMatch = nodeStr.match(/y="([^"]+)"/);
+        const fillMatch = nodeStr.match(/fill="([^"]+)"/);
+        const fontMatch = nodeStr.match(/font-family="([^"]+)"/);
+        const fontSizeMatch = nodeStr.match(/font-size="([^"]+)"/);
+        const alignMatch = nodeStr.match(/text-anchor="([^"]+)"/);
+        const contentMatch = nodeStr.match(/>([^<]+)<\/text>/);
+
+        if (xMatch && yMatch && contentMatch) {
+          targetCtx.save();
+          const x = parseFloat(xMatch[1]);
+          const y = parseFloat(yMatch[1]);
+          const font = (fontMatch ? fontMatch[1] : 'sans-serif');
+          const fontSize = (fontSizeMatch ? fontSizeMatch[1] : '12px');
+          targetCtx.font = `${fontSize} ${font}`;
+          targetCtx.fillStyle = (fillMatch && fillMatch[1] !== 'none') ? fillMatch[1] : '#ffffff';
+          if (alignMatch) {
+            targetCtx.textAlign = alignMatch[1] === 'middle' ? 'center' : (alignMatch[1] === 'end' ? 'right' : 'left');
+          }
+          targetCtx.fillText(contentMatch[1], x, y);
+          targetCtx.restore();
+        }
+      }
+    }
+
+    targetCtx.restore();
+  }
+
   function captureRecordingFrame() {
-    if (!recordingState.isRecording || !recordingState.ctx) return;
-    const svgEl = document.getElementById('main-svg');
-    if (!svgEl) return;
+    if (!recordingState.isRecording || !recordingState.ctx || recordingState.isCapturingFrame) return;
 
-    const w = recordingState.canvas.width;
-    const h = recordingState.canvas.height;
+    const now = performance.now();
+    if (now - recordingState.lastCaptureAt < recordingState.captureIntervalMs) return;
+    recordingState.lastCaptureAt = now;
 
-    // Set width and height attributes on the SVG to matches output dimensions
-    const oldW = svgEl.getAttribute('width');
-    const oldH = svgEl.getAttribute('height');
-    svgEl.setAttribute('width', w);
-    svgEl.setAttribute('height', h);
-
-    const svgString = new XMLSerializer().serializeToString(svgEl);
-
-    // Restore attributes
-    if (oldW !== null) svgEl.setAttribute('width', oldW); else svgEl.removeAttribute('width');
-    if (oldH !== null) svgEl.setAttribute('height', oldH); else svgEl.removeAttribute('height');
-
-    const svgBlob = new Blob([svgString], { type: 'image/svg+xml;charset=utf-8' });
-    const url = URL.createObjectURL(svgBlob);
-
-    const img = new Image();
-    img.onload = () => {
-      recordingState.ctx.fillStyle = getBgColor();
-      recordingState.ctx.fillRect(0, 0, w, h);
-      recordingState.ctx.drawImage(img, 0, 0, w, h);
-      URL.revokeObjectURL(url);
-    };
-    img.src = url;
+    recordingState.isCapturingFrame = true;
+    try {
+      renderOffCtxToCanvas(offCtx, recordingState.ctx, recordingState.canvas.width, recordingState.canvas.height);
+    } catch (e) {
+      console.warn('Fast canvas render fallback error:', e);
+    } finally {
+      recordingState.isCapturingFrame = false;
+    }
   }
 
   function startVideoRecording() {
     if (recordingState.isRecording) return;
+    recordingState.isCapturingFrame = false;
 
     const svgEl = document.getElementById('main-svg');
     if (!svgEl) return;
@@ -5543,69 +5866,56 @@
     recordingState.canvas.width = recW;
     recordingState.canvas.height = recH;
     recordingState.ctx = recordingState.canvas.getContext('2d');
+    recordingState.captureIntervalMs = 33.3; // 30 FPS frame capture pacing to prevent thread saturation
+    recordingState.lastCaptureAt = 0;
 
     const stream = recordingState.canvas.captureStream(30); // 30 FPS
     recordingState.includeAudio = false;
     recordingState.audioDestNode = null;
-    recordingState.audioCompressor = null;
-    recordingState.audioNormGain = null;
 
-    // Add normalized audio track only when AUDIO RX is explicitly ON.
-    const hasAudioRxOn = !!(state.audioRx.enabled && state.audioRx.ready &&
-      audioRxRuntime.ctx && audioRxRuntime.sourceNode);
+    // Add WebAudio-synchronized audio destination node when AUDIO RX is ON.
+    const hasAudioRxOn = !!(state.audioRx.enabled && state.audioRx.ready && audioRxRuntime.ctx && audioRxRuntime.sourceNode);
     if (hasAudioRxOn) {
       try {
-        const ctx = audioRxRuntime.ctx;
+        const audioDest = audioRxRuntime.ctx.createMediaStreamDestination();
+        audioRxRuntime.sourceNode.connect(audioDest);
+        recordingState.audioDestNode = audioDest;
 
-        // Dynamics compressor: gain-rides the signal so quiet audio comes up
-        // and peaks never clip
-        const comp = ctx.createDynamicsCompressor();
-        comp.threshold.value = -18;  // dB — start compressing here
-        comp.knee.value       = 20;  // dB — soft knee
-        comp.ratio.value      = 12;  // 12:1 — strong normalization
-        comp.attack.value     = 0.003; // 3 ms
-        comp.release.value    = 0.25;  // 250 ms
-
-        // Makeup gain after compression
-        const gain = ctx.createGain();
-        gain.gain.value = 2.0;
-
-        recordingState.audioDestNode    = ctx.createMediaStreamDestination();
-        recordingState.audioCompressor  = comp;
-        recordingState.audioNormGain    = gain;
-
-        audioRxRuntime.sourceNode.connect(comp);
-        comp.connect(gain);
-        gain.connect(recordingState.audioDestNode);
-
-        recordingState.audioDestNode.stream.getAudioTracks().forEach(t => stream.addTrack(t));
-        recordingState.includeAudio = true;
+        const audioTracks = audioDest.stream.getAudioTracks();
+        if (audioTracks.length > 0) {
+          stream.addTrack(audioTracks[0]);
+          recordingState.includeAudio = true;
+        }
       } catch(e) {
         console.warn('No se pudo agregar audio a la grabación:', e);
-        recordingState.audioDestNode   = null;
-        recordingState.audioCompressor = null;
-        recordingState.audioNormGain   = null;
-        recordingState.includeAudio    = false;
+        recordingState.audioDestNode = null;
+        recordingState.includeAudio = false;
       }
     } else {
-      // Defensive: make sure the recording stream remains silent when AUDIO RX is OFF.
       stream.getAudioTracks().forEach(t => stream.removeTrack(t));
     }
 
-    const candidates = [
-      { mime: 'video/x-matroska;codecs=avc1', ext: 'mkv' },
-      { mime: 'video/x-matroska;codecs=h264', ext: 'mkv' },
-      { mime: 'video/x-matroska;codecs=vp9', ext: 'mkv' },
-      { mime: 'video/x-matroska', ext: 'mkv' },
-      { mime: 'video/mp4;codecs=h264', ext: 'mp4' },
-      { mime: 'video/mp4', ext: 'mp4' },
-      { mime: 'video/webm;codecs=vp9', ext: 'webm' },
-      { mime: 'video/webm;codecs=vp8', ext: 'webm' },
+    const formatSelect = document.getElementById('record-format-select');
+    const prefFormat = formatSelect ? formatSelect.value : 'mp4';
+
+    const mp4Candidates = [
+      { mime: 'video/mp4;codecs=avc1.42E01E,mp4a.40.2', ext: 'mp4' },
+      { mime: 'video/mp4;codecs=h264,aac', ext: 'mp4' },
+      { mime: 'video/mp4', ext: 'mp4' }
+    ];
+
+    const webmCandidates = [
+      { mime: 'video/webm;codecs=vp9,opus', ext: 'webm' },
+      { mime: 'video/webm;codecs=vp8,opus', ext: 'webm' },
       { mime: 'video/webm', ext: 'webm' }
     ];
 
-    recordingState.mimeType = 'video/webm';
-    recordingState.extension = 'webm';
+    const candidates = prefFormat === 'webm'
+      ? [...webmCandidates, ...mp4Candidates]
+      : [...mp4Candidates, ...webmCandidates];
+
+    recordingState.mimeType = 'video/mp4';
+    recordingState.extension = 'mp4';
 
     for (const candidate of candidates) {
       if (MediaRecorder.isTypeSupported(candidate.mime)) {
@@ -5615,11 +5925,11 @@
       }
     }
 
-    // Force high bitrate (20 Mbps) for high quality recording
+    // Balanced bitrate (10 Mbps) for crisp 1080p recording without thread stuttering
     const options = { 
       mimeType: recordingState.mimeType,
-      videoBitsPerSecond: 20000000,
-      ...(recordingState.includeAudio ? { audioBitsPerSecond: 192000 } : {})
+      videoBitsPerSecond: 10000000,
+      ...(recordingState.includeAudio ? { audioBitsPerSecond: 128000 } : {})
     };
 
     recordingState.recordedBlobs = [];
@@ -5644,16 +5954,12 @@
     };
 
     recordingState.recorder.onstop = () => {
-      // Disconnect audio processing chain
-      if (recordingState.includeAudio && recordingState.audioDestNode) {
-        try { audioRxRuntime.sourceNode?.disconnect(recordingState.audioCompressor); } catch(e) {}
-        try { recordingState.audioCompressor?.disconnect(); } catch(e) {}
-        try { recordingState.audioNormGain?.disconnect(); } catch(e) {}
+      // Disconnect WebAudio MediaStreamDestination
+      if (recordingState.audioDestNode && audioRxRuntime.sourceNode) {
+        try { audioRxRuntime.sourceNode.disconnect(recordingState.audioDestNode); } catch(e) {}
       }
-      recordingState.audioDestNode   = null;
-      recordingState.audioCompressor = null;
-      recordingState.audioNormGain   = null;
-      recordingState.includeAudio    = false;
+      recordingState.audioDestNode = null;
+      recordingState.includeAudio  = false;
       const blob = new Blob(recordingState.recordedBlobs, { type: recordingState.mimeType });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -5686,7 +5992,7 @@
 
     recordingState.isRecording = true;
     recordingState.startTime = performance.now();
-    recordingState.recorder.start();
+    recordingState.recorder.start(500); // 500ms timeslice reduces main-thread event loop overhead
 
     const btn = document.getElementById('btn-record-video');
     const stopBtn = document.getElementById('btn-stop-recording');
@@ -5774,9 +6080,9 @@
     fpsEl.dataset.passes = drawPerf.maxPasses;
     fpsEl.dataset.elBudget = drawPerf.elementBudget;
     state.lastFrameTime = timestamp;
-    const baseLfoRates = state.lfos.map(lfo => Math.max(1, Math.min(160, lfo.rate)));
+    const baseLfoRates = state.lfos.map(lfo => Math.max(1, Math.min(60, lfo.rate)));
     const preLfoVals = baseLfoRates.map((rate, i) =>
-      getWaveValue(state.animTime, rate / 15, i * Math.PI * 0.666, state.lfos[i].wave)
+      getWaveValue(state.animTime, rate / 45, i * Math.PI * 0.666, state.lfos[i].wave)
     );
     const preLowDrive = Math.max(0, Math.min(1, state.audioRx.lowLevel)) * (state.audioRx.lowAmount / 100);
     const preMidDrive = Math.max(0, Math.min(1, state.audioRx.midLevel)) * (state.audioRx.midAmount / 100);
@@ -5790,7 +6096,7 @@
       if (!depths || depths.every(v => v === null)) return baseRate;
       const modSum = depths.reduce((sum, depth, srcIdx) =>
         depth !== null ? sum + (preSourceVals[srcIdx] || 0) * (depth / 100) : sum, 0);
-      return Math.max(1, Math.min(160, baseRate + modSum * 45));
+      return Math.max(1, Math.min(60, baseRate + modSum * 20));
     });
 
     state.liveLfoRates = effectiveRates;
@@ -5801,14 +6107,14 @@
       state.lfoUiSpeedBucket = speedBucket;
       [0, 1, 2].forEach(updateLfoJackStyle);
     }
-    state.animTime += 0.016 * (avgLfoRate / 15);
+    state.animTime += 0.016 * (avgLfoRate / 140.0); // Smooth, ultra-fluid slow movement rate
     sampleAudioReactiveLevel();
 
     // Smooth modulation with deterministic LFOs (no animation chaos jitter)
 
     // ── Eurorack LFO modulation ──────────────────────────────────────────
     const lfoVals = state.lfos.map((lfo, i) =>
-      getWaveValue(state.animTime, getEffectiveLfoRate(lfo.rate, i) / 15, i * Math.PI * 0.666, lfo.wave)
+      getWaveValue(state.animTime, getEffectiveLfoRate(lfo.rate, i) / 45, i * Math.PI * 0.666, lfo.wave)
     );
     const lowDrive = Math.max(0, Math.min(1, state.audioRx.lowLevel)) * (state.audioRx.lowAmount / 100);
     const midDrive = Math.max(0, Math.min(1, state.audioRx.midLevel)) * (state.audioRx.midAmount / 100);
@@ -5866,7 +6172,9 @@
 
 
     const t01 = (state.currentAnimSpeed - 1) / 33;
-    let intervalMs = Math.round(1000 * Math.pow(0.1, t01));
+    // Rango: 1500ms (velocidad máxima) .. 12000ms (velocidad mínima)
+    // La fórmula original colapsaba a ~10ms en velocidades altas → flashes inentendibles
+    let intervalMs = Math.round(12000 * Math.pow(1500 / 12000, t01));
 
     const needsTimedChange = ['seed','palette','bg','mode'].some(k => state.patches[k].some(v => v !== null));
     if (needsTimedChange && (timestamp - state.lastSeedChange >= intervalMs)) {
@@ -5911,7 +6219,7 @@
         document.querySelectorAll('.bg-btn').forEach(b => b.classList.toggle('active', b.dataset.bg === state.bg));
       }
       if (state.patches.mode.some(v => v !== null)) {
-        const MODES = ['vectorheart','circuit','hud','glitch','blueprint','chaos','flow','sacred','glyph','volumetric','gundam','evangelion'];
+        const MODES = ['flow'];
         const offset = Math.round(5 * getDestMod('mode'));
         let targetIdx = (animBases.modeIdx + offset) % MODES.length;
         if (targetIdx < 0) targetIdx += MODES.length;
@@ -5953,7 +6261,7 @@
     animBases.bgIdx = BACKGROUNDS.indexOf(state.bg);
     if (animBases.bgIdx === -1) animBases.bgIdx = 0;
 
-    const MODES = ['vectorheart','circuit','hud','glitch','blueprint','chaos','flow','sacred','glyph','volumetric','gundam','evangelion'];
+    const MODES = ['flow'];
     animBases.modeIdx = MODES.indexOf(state.mode);
     if (animBases.modeIdx === -1) animBases.modeIdx = 0;
 
@@ -5968,6 +6276,8 @@
       { id: 'detail-slider', valId: 'detail-val', key: 'detail', base: 'detail' },
       { id: 'weight-slider', valId: 'weight-val', key: 'weight', base: 'weight' },
       { id: 'chaos-slider', valId: 'chaos-val', key: 'chaos', base: 'chaos' },
+      { id: 'flow-freq-slider', valId: 'flow-freq-val', key: 'flowFrequency', base: 'flowFrequency' },
+      { id: 'flow-turb-slider', valId: 'flow-turb-val', key: 'flowTurbulence', base: 'flowTurbulence' },
       { id: 'text-slider', valId: 'text-val', key: 'textAmount', base: 'textAmount' },
       { id: 'custom-text-density-slider', valId: 'custom-text-density-val', key: 'customTextAmount', base: 'customTextAmount' },
       { id: 'custom-text-size-slider', valId: 'custom-text-size-val', key: 'customTextSize', base: 'customTextSize' }
@@ -5979,6 +6289,9 @@
       if (slider) slider.value = baseVal;
       if (valEl) valEl.textContent = state[s.key];
     });
+
+    const shapeSelect = document.getElementById('flow-shape-select');
+    if (shapeSelect && state.flowShape) shapeSelect.value = state.flowShape;
 
     const audioSliders = [
       { id: 'audio-low-amount-slider', valId: 'audio-low-amount-val', key: 'lowAmount' },
@@ -6009,7 +6322,7 @@
   // ── INIT: reset to minimal default state ─────────────────────────────────
   function applyInitState() {
     // Parameters
-    state.mode        = 'vectorheart';
+    state.mode        = 'flow';
     state.palette     = 'mono';
     state.bg          = 'dark';
     state.detail      = 20;
@@ -6064,8 +6377,7 @@
     renderPatchBay();
     syncBlockLockUi();
 
-    document.querySelectorAll('.palette-btn').forEach(b => b.classList.toggle('active', b.dataset.palette === state.palette));
-    document.querySelectorAll('.bg-btn').forEach(b => b.classList.toggle('active', b.dataset.bg === state.bg));
+    updateThemeUi(state.currentTheme || 'cyber-night');
     document.querySelectorAll('.sym-btn').forEach(b => b.classList.toggle('active', b.dataset.sym === state.symmetry));
 
     const modeSelect = document.getElementById('mode-select');
@@ -6114,20 +6426,62 @@
   // ─────────────────────────────────────────────────────────────────────────
 
   const PRESETS = {
-    razorwire:  { mode:'vectorheart', palette:'mono',      bg:'dark',  complexity:9, density:8, weight:5, chaos:4, textAmount:6, symmetry:'none'     },
-    ghostdata:  { mode:'circuit',     palette:'cyber',     bg:'black', complexity:7, density:9, weight:2, chaos:6, textAmount:8, symmetry:'none'     },
-    warzone:    { mode:'glitch',      palette:'blood',     bg:'dark',  complexity:6, density:8, weight:4, chaos:9, textAmount:7, symmetry:'mirror-x'  },
-    deepfreeze: { mode:'blueprint',   palette:'ice',       bg:'light', complexity:9, density:5, weight:1, chaos:2, textAmount:3, symmetry:'4way'     },
-    cosmos:     { mode:'sacred',      palette:'vaporwave', bg:'black', complexity:9, density:6, weight:1, chaos:3, textAmount:2, symmetry:'none'     },
-    anarchy:    { mode:'chaos',       palette:'neon',      bg:'dark',  complexity:10,density:10,weight:6, chaos:10,textAmount:5, symmetry:'none'     },
-    flowstate:  { mode:'flow',        palette:'gold',      bg:'dark',  complexity:7, density:8, weight:2, chaos:5, textAmount:2, symmetry:'mirror-y' },
-    sanctum:    { mode:'sacred',      palette:'ice',       bg:'dark',  complexity:8, density:4, weight:1, chaos:2, textAmount:1, symmetry:'4way'     },
-    fedforces:  { mode:'gundam',      palette:'gundam',    bg:'black', complexity:8, density:7, weight:2, chaos:4, textAmount:8, symmetry:'none'     },
-    nerv:       { mode:'evangelion',  palette:'evangelion',bg:'black', complexity:7, density:6, weight:2, chaos:5, textAmount:9, symmetry:'none'     },
+    razorwire:  { mode:'vectorheart', palette:'mono',      bg:'dark',  complexity:9, density:8, weight:5, chaos:4, textAmount:6, symmetry:'none',
+      patchList: [['detail', 0, 60], ['weight', 1, 45], ['chaos', 3, 50], ['palette', 0, 30]],
+      lfos: [{ wave: 'sine', rate: 12 }, { wave: 'triangle', rate: 7 }, { wave: 'random', rate: 16 }],
+      audioRx: { source: 'loopback', lowAmount: 60, midAmount: 40, highAmount: 50, masterSend: 100, smooth: 0.82 }
+    },
+    ghostdata:  { mode:'circuit',     palette:'cyber',     bg:'black', complexity:7, density:9, weight:2, chaos:6, textAmount:8, symmetry:'none',
+      patchList: [['detail', 0, 55], ['chaos', 1, 65], ['text', 4, 60], ['mode', 0, 35]],
+      lfos: [{ wave: 'square', rate: 15 }, { wave: 'sawtooth', rate: 11 }, { wave: 'triangle', rate: 8 }],
+      audioRx: { source: 'loopback', lowAmount: 50, midAmount: 65, highAmount: 40, masterSend: 100, smooth: 0.82 }
+    },
+    warzone:    { mode:'glitch',      palette:'blood',     bg:'dark',  complexity:6, density:8, weight:4, chaos:9, textAmount:7, symmetry:'mirror-x',
+      patchList: [['chaos', 5, 80], ['effects', 3, 70], ['seed', 4, 60], ['weight', 3, 50]],
+      lfos: [{ wave: 'sawtooth', rate: 16 }, { wave: 'random', rate: 14 }, { wave: 'square', rate: 12 }],
+      audioRx: { source: 'loopback', lowAmount: 75, midAmount: 55, highAmount: 85, masterSend: 110, smooth: 0.75 }
+    },
+    deepfreeze: { mode:'blueprint',   palette:'ice',       bg:'light', complexity:9, density:5, weight:1, chaos:2, textAmount:3, symmetry:'4way',
+      patchList: [['detail', 1, 40], ['customSize', 0, 30], ['bg', 1, 25]],
+      lfos: [{ wave: 'sine', rate: 5 }, { wave: 'triangle', rate: 4 }, { wave: 'sine', rate: 8 }]
+    },
+    cosmos:     { mode:'sacred',      palette:'vaporwave', bg:'black', complexity:9, density:6, weight:1, chaos:3, textAmount:2, symmetry:'none',
+      patchList: [['detail', 0, 70], ['chaos', 1, 40], ['palette', 0, 50], ['seed', 2, 45]],
+      lfos: [{ wave: 'sine', rate: 8 }, { wave: 'triangle', rate: 6 }, { wave: 'random', rate: 10 }]
+    },
+    anarchy:    { mode:'chaos',       palette:'neon',      bg:'dark',  complexity:10,density:10,weight:6, chaos:10,textAmount:5, symmetry:'none',
+      patchList: [['chaos', 5, 90], ['detail', 3, 80], ['seed', 4, 75], ['mode', 5, 60], ['effects', 3, 70]],
+      lfos: [{ wave: 'random', rate: 20 }, { wave: 'square', rate: 18 }, { wave: 'sawtooth', rate: 15 }],
+      audioRx: { source: 'loopback', lowAmount: 85, midAmount: 70, highAmount: 95, masterSend: 120, smooth: 0.70 }
+    },
+    flowstate:  { mode:'flow',        palette:'gold',      bg:'dark',  complexity:7, density:8, weight:2, chaos:5, textAmount:2, symmetry:'mirror-y',
+      patchList: [['detail', 0, 50], ['weight', 1, 40], ['palette', 2, 35]],
+      lfos: [{ wave: 'sine', rate: 6 }, { wave: 'sine', rate: 9 }, { wave: 'triangle', rate: 5 }]
+    },
+    sanctum:    { mode:'sacred',      palette:'ice',       bg:'dark',  complexity:8, density:4, weight:1, chaos:2, textAmount:1, symmetry:'4way',
+      patchList: [['detail', 1, 45], ['chaos', 0, 20], ['symmetry', 2, 30]],
+      lfos: [{ wave: 'triangle', rate: 4 }, { wave: 'sine', rate: 3 }, { wave: 'sine', rate: 6 }]
+    },
+    fedforces:  { mode:'gundam',      palette:'gundam',    bg:'black', complexity:8, density:7, weight:2, chaos:4, textAmount:8, symmetry:'none',
+      patchList: [['detail', 0, 60], ['text', 4, 55], ['weight', 1, 40], ['seed', 3, 50]],
+      lfos: [{ wave: 'square', rate: 10 }, { wave: 'sawtooth', rate: 8 }, { wave: 'triangle', rate: 12 }]
+    },
+    nerv:       { mode:'evangelion',  palette:'evangelion',bg:'black', complexity:7, density:6, weight:2, chaos:5, textAmount:9, symmetry:'none',
+      patchList: [['chaos', 5, 75], ['effects', 3, 65], ['detail', 0, 55], ['seed', 4, 60]],
+      lfos: [{ wave: 'sawtooth', rate: 12 }, { wave: 'random', rate: 14 }, { wave: 'square', rate: 9 }],
+      audioRx: { source: 'loopback', lowAmount: 70, midAmount: 60, highAmount: 80, masterSend: 100, smooth: 0.78 }
+    },
   };
 
   function applyPreset(name) {
     const p = PRESETS[name]; if (!p) return;
+
+    // If preset is a full snapshot format:
+    if (p.state) {
+      applyPresetSnapshot(p, name);
+      return;
+    }
+
     state.isBatchUpdating = true;
     Object.assign(state, p);
 
@@ -6135,6 +6489,27 @@
     state.detail = Math.round((p.complexity + p.density) * 5);
     state.complexity = Math.round(state.detail * 40 / 100);
     state.density = Math.round(state.detail * 15 / 100);
+
+    // Apply modulation patch matrix connections if defined in preset
+    if (p.patches) {
+      state.patches = clonePatchState(p.patches);
+    } else if (p.patchList && Array.isArray(p.patchList)) {
+      state.patches = makeEmptyPresetPatches();
+      p.patchList.forEach(([dest, src, depth]) => setPresetPatch(state.patches, dest, src, depth));
+    }
+
+    if (p.lfos && Array.isArray(p.lfos)) {
+      for (let i = 0; i < 3; i++) {
+        if (p.lfos[i]) {
+          if (p.lfos[i].wave) state.lfos[i].wave = p.lfos[i].wave;
+          if (p.lfos[i].rate !== undefined) state.lfos[i].rate = p.lfos[i].rate;
+        }
+      }
+    }
+
+    if (p.audioRx && typeof p.audioRx === 'object') {
+      Object.assign(state.audioRx, p.audioRx);
+    }
 
     // Sync animBases with the new preset values
     animBases.detail = state.detail;
@@ -6150,31 +6525,13 @@
     animBases.bgIdx = BACKGROUNDS.indexOf(state.bg);
     if (animBases.bgIdx === -1) animBases.bgIdx = 0;
 
-    const MODES = ['vectorheart','circuit','hud','glitch','blueprint','chaos','flow','sacred','glyph','volumetric','gundam','evangelion'];
+    const MODES = ['flow'];
     animBases.modeIdx = MODES.indexOf(state.mode);
     if (animBases.modeIdx === -1) animBases.modeIdx = 0;
 
-    // Sync UI
-    ['detail','weight','chaos','textAmount'].forEach(k => {
-      const slider = document.getElementById(k === 'textAmount' ? 'text-slider' : k + '-slider');
-      if (slider) { 
-        slider.value = state[k]; 
-        document.getElementById(slider.id.replace('-slider','-val')).textContent = state[k]; 
-      }
-    });
-    const modeSelect = document.getElementById('mode-select');
-    if (modeSelect) modeSelect.value = state.mode;
+    // Sync UI, Patch Matrix UI & Audio Modulation UI
+    syncUiFromState();
 
-    // Sync custom color dropdown UI
-    const selectedSquare = document.getElementById('selected-color-square');
-    if (selectedSquare) {
-      selectedSquare.className = `color-square ${state.customTextColor}-square`;
-    }
-    const colorItems = document.querySelectorAll('.color-dropdown-item');
-    colorItems.forEach(i => i.classList.toggle('active', i.dataset.value === state.customTextColor));
-    document.querySelectorAll('.palette-btn').forEach(b => b.classList.toggle('active', b.dataset.palette === state.palette));
-    document.querySelectorAll('.bg-btn').forEach(b => b.classList.toggle('active', b.dataset.bg === state.bg));
-    document.querySelectorAll('.sym-btn').forEach(b => b.classList.toggle('active', b.dataset.sym === state.symmetry));
     document.querySelectorAll('.preset-btn').forEach(b => b.classList.toggle('active', b.dataset.preset === name));
     document.getElementById('mode-badge').textContent = `MODO::${state.mode.toUpperCase()}`;
     document.getElementById('footer-info').textContent = `PREAJUSTE::${name.toUpperCase()}`;
@@ -6266,7 +6623,7 @@
   const USER_PRESETS_SEEDED_KEY = 'heartflash-user-presets-seeded-v1';
   const PRESET_PALETTES = ['mono', 'cyber', 'neon', 'blood', 'ice', 'gold', 'vaporwave', 'matrix', 'rust', 'gundam', 'evangelion', 'sunset', 'ocean', 'forest', 'nordic', 'sakura', 'lava', 'synthwave', 'toxic'];
   const PRESET_BACKGROUNDS = ['light', 'dark', 'paper', 'black', 'midnight', 'sepia', 'violet', 'jade', 'wine', 'steel', 'copper', 'slate'];
-  const PRESET_MODES = ['vectorheart', 'circuit', 'hud', 'glitch', 'blueprint', 'chaos', 'flow', 'sacred', 'glyph', 'volumetric', 'gundam', 'evangelion'];
+  const PRESET_MODES = ['flow'];
   const PRESET_SYMMETRY = ['none', 'mirror-y', 'mirror-x', '4way'];
 
   function loadUserPresets() {
@@ -6901,10 +7258,20 @@
   wireSlider('detail-slider',     'detail',     'detail-val');
   wireSlider('weight-slider',     'weight',     'weight-val');
   wireSlider('chaos-slider',      'chaos',      'chaos-val');
+  wireSlider('flow-freq-slider',  'flowFrequency',  'flow-freq-val');
+  wireSlider('flow-turb-slider',  'flowTurbulence', 'flow-turb-val');
   wireSlider('text-slider',       'textAmount', 'text-val');
   wireSlider('custom-text-density-slider', 'customTextAmount', 'custom-text-density-val');
   wireSlider('custom-text-size-slider',    'customTextSize',   'custom-text-size-val');
   wireSlider('custom-text-opacity-slider', 'customTextOpacity', 'custom-text-opacity-val');
+
+  const flowShapeSelect = document.getElementById('flow-shape-select');
+  if (flowShapeSelect) {
+    flowShapeSelect.addEventListener('change', e => {
+      state.flowShape = e.target.value;
+      if (!state.animating) draw();
+    });
+  }
 
   // Custom text input
   const customTextInput = document.getElementById('custom-text-input');
@@ -7185,25 +7552,42 @@
     });
   }
 
-  // Palette buttons
-  document.querySelectorAll('.palette-btn').forEach(btn => btn.addEventListener('click', () => {
-    document.querySelectorAll('.palette-btn').forEach(b => b.classList.remove('active'));
-    btn.classList.add('active'); state.palette = btn.dataset.palette;
-    const PALETTES = ['mono', 'cyber', 'neon', 'blood', 'ice', 'gold', 'vaporwave', 'matrix', 'rust', 'gundam', 'evangelion'];
-    animBases.paletteIdx = PALETTES.indexOf(state.palette);
-    if (animBases.paletteIdx === -1) animBases.paletteIdx = 0;
-    if (!state.animating) draw(0, true);
-  }));
+  // Unified Theme Selector Wiring
+  const themeSelects = [document.getElementById('theme-select'), document.getElementById('top-theme-select')].filter(Boolean);
+  themeSelects.forEach(select => {
+    select.addEventListener('change', () => {
+      applyTheme(select.value);
+    });
+  });
 
-  // BG buttons
-  document.querySelectorAll('.bg-btn').forEach(btn => btn.addEventListener('click', () => {
-    document.querySelectorAll('.bg-btn').forEach(b => b.classList.remove('active'));
-    btn.classList.add('active'); state.bg = btn.dataset.bg;
-    const BACKGROUNDS = ['light', 'dark', 'paper', 'black', 'midnight', 'sepia', 'violet', 'jade', 'wine', 'steel', 'copper', 'slate'];
-    animBases.bgIdx = BACKGROUNDS.indexOf(state.bg);
-    if (animBases.bgIdx === -1) animBases.bgIdx = 0;
-    if (!state.animating) draw();
-  }));
+  const stepTheme = (direction) => {
+    const keys = Object.keys(THEMES);
+    const currIdx = keys.indexOf(state.currentTheme || 'cyber-night');
+    let nextIdx = (currIdx + direction) % keys.length;
+    if (nextIdx < 0) nextIdx += keys.length;
+    applyTheme(keys[nextIdx]);
+  };
+
+  const shuffleTheme = () => {
+    const keys = Object.keys(THEMES);
+    const randomKey = keys[Math.floor(Math.random() * keys.length)];
+    applyTheme(randomKey);
+  };
+
+  ['theme-btn-prev', 'top-theme-btn-prev'].forEach(id => {
+    const btn = document.getElementById(id);
+    if (btn) btn.addEventListener('click', () => stepTheme(-1));
+  });
+
+  ['theme-btn-next', 'top-theme-btn-next'].forEach(id => {
+    const btn = document.getElementById(id);
+    if (btn) btn.addEventListener('click', () => stepTheme(1));
+  });
+
+  ['btn-theme-shuffle', 'top-btn-theme-shuffle'].forEach(id => {
+    const btn = document.getElementById(id);
+    if (btn) btn.addEventListener('click', shuffleTheme);
+  });
 
   // Symmetry buttons
   document.querySelectorAll('.sym-btn').forEach(btn => btn.addEventListener('click', () => {
@@ -7312,6 +7696,24 @@
   document.getElementById('fx-glitch').addEventListener('change', e => { state.glitch = e.target.checked; if (!state.animating) draw(); });
   document.getElementById('fx-static').addEventListener('change', e => { state.static = e.target.checked; if (!state.animating) draw(); });
 
+  // Camera & Encuadre Sliders
+  const setupCamSlider = (id, stateKey, unit = '') => {
+    const slider = document.getElementById(id);
+    if (slider) {
+      slider.addEventListener('input', (e) => {
+        const val = parseInt(e.target.value, 10);
+        state[stateKey] = val;
+        const valEl = document.getElementById(id.replace('-slider', '-val'));
+        if (valEl) valEl.textContent = `${val}${unit}`;
+        if (!state.animating) draw(0, true);
+      });
+    }
+  };
+  setupCamSlider('cam-zoom-slider', 'cameraZoom', '%');
+  setupCamSlider('cam-pan-x-slider', 'cameraPanX');
+  setupCamSlider('cam-pan-y-slider', 'cameraPanY');
+  setupCamSlider('cam-rotate-slider', 'cameraRotate', '°');
+
   // Randomize everything function
   const LFO_COLORS = ['#00e5ff', '#ff4f81', '#bf5af2'];
   const PATCH_GROUP_MAP = {
@@ -7410,9 +7812,9 @@
 
   function getEffectiveLfoRate(baseRate, lfoIdx) {
     if (state.animating && Array.isArray(state.liveLfoRates) && typeof state.liveLfoRates[lfoIdx] === 'number') {
-      return Math.max(1, Math.min(160, state.liveLfoRates[lfoIdx]));
+      return Math.max(1, Math.min(60, state.liveLfoRates[lfoIdx]));
     }
-    return Math.max(1, Math.min(160, baseRate));
+    return Math.max(1, Math.min(60, baseRate));
   }
 
   function updateLfoJackStyle(lfoIdx) {
@@ -7421,7 +7823,7 @@
     const hasPatches = Object.values(state.patches).some(p => p[lfoIdx] !== null);
     module.classList.toggle('has-patches', hasPatches);
     const effectiveRate = getEffectiveLfoRate(state.lfos[lfoIdx].rate, lfoIdx);
-    const period = (Math.max(0.18, 2.0 / (effectiveRate / 15))).toFixed(2) + 's';
+    const period = (Math.max(0.5, 6.0 / (effectiveRate / 45))).toFixed(2) + 's';
     module.style.setProperty('--lfo-period', period);
   }
 
@@ -7512,7 +7914,7 @@
     }
 
     // 2. Mode (soft random keeps current mode)
-    const modes = ['vectorheart','circuit','hud','glitch','blueprint','chaos','flow','sacred','glyph','volumetric','gundam','evangelion'];
+    const modes = ['flow'];
     if (!profile.lockMode && !isBlockLocked('mode')) {
       state.mode = modes[Math.floor(Math.random() * modes.length)];
     }
@@ -7746,7 +8148,7 @@
     animBases.bgIdx = BACKGROUNDS.indexOf(state.bg);
     if (animBases.bgIdx === -1) animBases.bgIdx = 0;
 
-    const MODES = ['vectorheart','circuit','hud','glitch','blueprint','chaos','flow','sacred','glyph','volumetric','gundam','evangelion'];
+    const MODES = ['flow'];
     animBases.modeIdx = MODES.indexOf(state.mode);
     if (animBases.modeIdx === -1) animBases.modeIdx = 0;
 
@@ -7947,7 +8349,7 @@
       if (animBases.modeIdx === -1) animBases.modeIdx = 0;
     };
 
-    const runAutopilotStep = (levelKey) => {
+    runAutopilotStep = window._runAutopilotStep = (levelKey) => {
       const profile = AUTOPILOT_MUTATION[levelKey] || AUTOPILOT_MUTATION.medium;
       const waves = ['sine', 'triangle', 'sawtooth', 'square', 'random'];
       autopilotTick += 1;
@@ -7955,23 +8357,47 @@
       state.isBatchUpdating = true;
 
       if (!isBlockLocked('params')) {
-        state.detail = clamp(state.detail + randInt(-profile.detailStep, profile.detailStep), 0, 100);
-        state.weight = clamp(state.weight + randInt(-profile.weightStep, profile.weightStep), 0, 100);
-        state.chaos = clamp(state.chaos + randInt(-profile.chaosStep, profile.chaosStep), 0, 100);
-        state.textAmount = clamp(state.textAmount + randInt(-profile.textStep, profile.textStep), 0, 100);
+        state.detail = clamp(state.detail + randInt(-8, 8), 0, 100);
+        state.weight = clamp(state.weight + randInt(-8, 8), 1, 100);
+        state.chaos = clamp(state.chaos + randInt(-8, 8), 0, 100);
+        state.textAmount = clamp(state.textAmount + randInt(-5, 5), 0, 100);
+        state.flowFrequency = clamp((state.flowFrequency || 50) + randInt(-10, 10), 10, 100);
+        state.flowTurbulence = clamp((state.flowTurbulence || 50) + randInt(-10, 10), 10, 100);
+
         state.complexity = Math.round(state.detail * 40 / 100);
         state.density = Math.round(state.detail * 15 / 100);
 
         setSliderUi('detail-slider', state.detail);
         setSliderUi('weight-slider', state.weight);
         setSliderUi('chaos-slider', state.chaos);
+        setSliderUi('flow-freq-slider', state.flowFrequency);
+        setSliderUi('flow-turb-slider', state.flowTurbulence);
         setSliderUi('text-slider', state.textAmount);
       }
 
+      // Camera Encuadre Mutator (Zoom 100-240%, PanX -40..40, PanY -40..40, Rotate -180..180)
+      if (Math.random() < 0.35) {
+        state.cameraZoom = clamp((state.cameraZoom || 100) + randInt(-15, 15), 100, 240);
+        state.cameraPanX = clamp((state.cameraPanX || 0) + randInt(-8, 8), -40, 40);
+        state.cameraPanY = clamp((state.cameraPanY || 0) + randInt(-8, 8), -40, 40);
+        state.cameraRotate = clamp((state.cameraRotate || 0) + randInt(-15, 15), -180, 180);
+
+        const setCamUi = (id, val, unit = '') => {
+          const el = document.getElementById(id);
+          if (el) el.value = String(Math.round(val));
+          const valEl = document.getElementById(id.replace('-slider', '-val'));
+          if (valEl) valEl.textContent = `${Math.round(val)}${unit}`;
+        };
+        setCamUi('cam-zoom-slider', state.cameraZoom, '%');
+        setCamUi('cam-pan-x-slider', state.cameraPanX);
+        setCamUi('cam-pan-y-slider', state.cameraPanY);
+        setCamUi('cam-rotate-slider', state.cameraRotate, '°');
+      }
+
       if (!isBlockLocked('text')) {
-        state.customTextAmount = clamp(state.customTextAmount + randInt(-profile.densityStep, profile.densityStep), 0, 100);
-        state.customTextSize = clamp(state.customTextSize + randInt(-profile.sizeStep, profile.sizeStep), 4, 150);
-        state.customTextOpacity = clamp(state.customTextOpacity + randInt(-profile.opacityStep, profile.opacityStep), 0, 100);
+        state.customTextAmount = clamp(state.customTextAmount + randInt(-6, 6), 0, 100);
+        state.customTextSize = clamp(state.customTextSize + randInt(-8, 8), 4, 150);
+        state.customTextOpacity = clamp(state.customTextOpacity + randInt(-10, 10), 0, 100);
         setSliderUi('custom-text-density-slider', state.customTextAmount);
         setSliderUi('custom-text-size-slider', state.customTextSize);
         setSliderUi('custom-text-opacity-slider', state.customTextOpacity);
@@ -7979,8 +8405,8 @@
 
       if (!isBlockLocked('lfo')) {
         state.lfos.forEach((lfo, i) => {
-          lfo.rate = clamp(lfo.rate + randInt(-profile.lfoRateStep, profile.lfoRateStep), 1, 100);
-          if (Math.random() < profile.lfoWaveChance) lfo.wave = pickOne(waves);
+          lfo.rate = clamp(lfo.rate + randInt(-5, 5), 1, 100);
+          if (Math.random() < 0.15) lfo.wave = pickOne(waves);
           const slider = document.querySelector(`.lfo-rate-slider[data-lfo="${i}"]`);
           if (slider) slider.value = String(lfo.rate);
           const valEl = document.querySelector(`.lfo-rate-val[data-lfo="${i}"]`);
@@ -7991,19 +8417,32 @@
         });
       }
 
-      const canShiftScene = autopilotTick % 3 === 0;
-      const canShiftMode = autopilotTick % 6 === 0;
-      if (canShiftScene && Math.random() < profile.paletteChance && !isBlockLocked('palette')) state.palette = pickOne(PRESET_PALETTES);
-      if (canShiftScene && Math.random() < profile.bgChance && !isBlockLocked('bg')) state.bg = pickOne(PRESET_BACKGROUNDS);
-      if (canShiftMode && profile.allowModeChange && Math.random() < profile.modeChance && !isBlockLocked('mode')) state.mode = pickOne(PRESET_MODES);
-      if (Math.random() < profile.seedChance) {
-        const nextSeed = Math.floor(Math.random() * 99999999);
-        triggerFade(nextSeed);
+      // Theme progression
+      if (Math.random() < 0.25 && !isBlockLocked('palette') && !isBlockLocked('bg')) {
+        stepTheme(1);
       }
 
-      if (!isBlockLocked('effects') && Math.random() < profile.effectToggleChance) {
-        const cheapFx = ['vignette', 'grain', 'scanlines'];
-        const fx = pickOne(cheapFx);
+      // Generative Shape Mode morphing
+      if (Math.random() < 0.2 && !isBlockLocked('mode')) {
+        const shapes = ['stream', 'orbit', 'cyber-grid', 'lissajous', 'particles', 'hyper-ribbon'];
+        state.flowShape = pickOne(shapes);
+        const shapeSelect = document.getElementById('flow-shape-select');
+        if (shapeSelect) shapeSelect.value = state.flowShape;
+      }
+
+      // Symmetry shifts
+      if (Math.random() < 0.25 && !isBlockLocked('symmetry')) {
+        const syms = ['none', 'mirror-y', 'mirror-x', '4way'];
+        state.symmetry = pickOne(syms);
+        document.querySelectorAll('.sym-btn').forEach(b => {
+          b.classList.toggle('active', b.dataset.sym === state.symmetry);
+        });
+      }
+
+      // Shader FX toggles
+      if (!isBlockLocked('effects') && Math.random() < 0.3) {
+        const allFx = ['vignette', 'grain', 'scanlines', 'chromatic', 'glitch', 'static'];
+        const fx = pickOne(allFx);
         state[fx] = !state[fx];
         const el = document.getElementById(`fx-${fx}`);
         if (el) el.checked = !!state[fx];
