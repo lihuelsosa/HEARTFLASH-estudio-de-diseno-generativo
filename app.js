@@ -420,6 +420,28 @@
   const BAND_SOURCE_COUNT = 3;
   const MOD_SOURCE_COUNT = LFO_SOURCE_COUNT + BAND_SOURCE_COUNT;
 
+  // ── DEBUG: trace who mutates detail/weight/chaos ─────────────────────────
+  // Open browser console. Look for [STATE WATCH] and [BASE WATCH] lines.
+  // Remove this block once the bug is identified.
+  (function installStateWatcher() {
+    const _watched = ['detail', 'weight', 'chaos'];
+    const _raw = {};
+    _watched.forEach(k => { _raw[k] = state[k]; });
+    _watched.forEach(k => {
+      Object.defineProperty(state, k, {
+        get() { return _raw[k]; },
+        set(v) {
+          if (v !== _raw[k]) {
+            console.warn(`[STATE WATCH] state.${k}: ${_raw[k]} → ${v} | audioON=${state.audioRx?.enabled}`, new Error().stack.split('\n').slice(1,5).join(' | '));
+          }
+          _raw[k] = v;
+        },
+        configurable: true
+      });
+    });
+  })();
+
+
   // Keep patch matrix shape stable if old states only had 3 sources.
   Object.keys(state.patches).forEach(dest => {
     while (state.patches[dest].length < MOD_SOURCE_COUNT) state.patches[dest].push(null);
@@ -8396,5 +8418,9 @@
   resizeCanvas();
   applyInitState();   // carga siempre en estado mínimo
   startAnimation();   // animación siempre activa desde el inicio
+
+  // DEBUG: expose internals to console for inspection
+  window._dbg = { state, animBases, getDetail: () => state.detail, getWeight: () => state.weight, getChaos: () => state.chaos };
+  console.log('[DBG] Internals exposed as window._dbg — run _dbg.getDetail() in console to check live value');
 
 })();
