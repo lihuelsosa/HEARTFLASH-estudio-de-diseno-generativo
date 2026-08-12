@@ -5811,9 +5811,16 @@
       { key: 'customSize',    stateKey: 'customTextSize',   base: 'customTextSize',   min: 4, max: 150, uiId: 'custom-text-size-val' },
     ];
     for (const d of CONT_DESTS) {
-      if (state.patches[d.key].every(v => v === null)) continue;
+      const base = (animBases && Number.isFinite(animBases[d.base])) ? animBases[d.base] : state[d.stateKey];
+      if (state.patches[d.key].every(v => v === null)) {
+        if (state[d.stateKey] !== base) {
+          state[d.stateKey] = base;
+          const el = document.getElementById(d.uiId);
+          if (el) el.textContent = base;
+        }
+        continue;
+      }
       const mod = getDestMod(d.key);
-      const base = animBases[d.base];
       const nextVal = Math.round(
         mod >= 0
           ? base + (d.max - base) * mod
@@ -5821,7 +5828,8 @@
       );
       const clampedVal = Math.max(d.min, Math.min(d.max, nextVal));
       state[d.stateKey] = clampedVal;
-      document.getElementById(d.uiId).textContent = clampedVal;
+      const el = document.getElementById(d.uiId);
+      if (el) el.textContent = clampedVal;
     }
     if (state.patches.detail.some(v => v !== null)) {
       state.complexity = Math.round(state.detail * 40 / 100);
@@ -5935,17 +5943,18 @@
 
   function syncSlidersToState() {
     const sliders = [
-      { id: 'detail-slider', valId: 'detail-val', key: 'detail' },
-      { id: 'weight-slider', valId: 'weight-val', key: 'weight' },
-      { id: 'chaos-slider', valId: 'chaos-val', key: 'chaos' },
-      { id: 'text-slider', valId: 'text-val', key: 'textAmount' },
-      { id: 'custom-text-density-slider', valId: 'custom-text-density-val', key: 'customTextAmount' },
-      { id: 'custom-text-size-slider', valId: 'custom-text-size-val', key: 'customTextSize' }
+      { id: 'detail-slider', valId: 'detail-val', key: 'detail', base: 'detail' },
+      { id: 'weight-slider', valId: 'weight-val', key: 'weight', base: 'weight' },
+      { id: 'chaos-slider', valId: 'chaos-val', key: 'chaos', base: 'chaos' },
+      { id: 'text-slider', valId: 'text-val', key: 'textAmount', base: 'textAmount' },
+      { id: 'custom-text-density-slider', valId: 'custom-text-density-val', key: 'customTextAmount', base: 'customTextAmount' },
+      { id: 'custom-text-size-slider', valId: 'custom-text-size-val', key: 'customTextSize', base: 'customTextSize' }
     ];
     sliders.forEach(s => {
       const slider = document.getElementById(s.id);
       const valEl = document.getElementById(s.valId);
-      if (slider) slider.value = state[s.key];
+      const baseVal = (animBases && Number.isFinite(animBases[s.base])) ? animBases[s.base] : state[s.key];
+      if (slider) slider.value = baseVal;
       if (valEl) valEl.textContent = state[s.key];
     });
 
@@ -5966,6 +5975,12 @@
     state.animating = false; if (state.animFrame) cancelAnimationFrame(state.animFrame);
     document.getElementById('status-dot').style.background = '';
     document.getElementById('status-dot').style.boxShadow = '';
+    
+    // Revert transient state to base values
+    const map = { detail: 'detail', weight: 'weight', chaos: 'chaos', textAmount: 'textAmount', customTextAmount: 'customTextAmount', customTextSize: 'customTextSize' };
+    Object.entries(map).forEach(([stKey, bKey]) => {
+      if (animBases && Number.isFinite(animBases[bKey])) state[stKey] = animBases[bKey];
+    });
     syncSlidersToState();
   }
 
