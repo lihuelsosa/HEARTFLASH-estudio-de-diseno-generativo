@@ -106,7 +106,7 @@
         <div class="slider-row"><label class="slider-label" for="cam-zoom-slider">ZOOM</label><div class="slider-track-wrap"><input type="range" id="cam-zoom-slider" min="100" max="250" value="100" step="1"><span class="slider-val" id="cam-zoom-val">100%</span></div></div>
         <div class="slider-row"><label class="slider-label" for="cam-pan-x-slider">PAN X</label><div class="slider-track-wrap"><input type="range" id="cam-pan-x-slider" min="-50" max="50" value="0" step="1"><span class="slider-val" id="cam-pan-x-val">0</span></div></div>
         <div class="slider-row"><label class="slider-label" for="cam-pan-y-slider">PAN Y</label><div class="slider-track-wrap"><input type="range" id="cam-pan-y-slider" min="-50" max="50" value="0" step="1"><span class="slider-val" id="cam-pan-y-val">0</span></div></div>
-        <div class="slider-row"><label class="slider-label" for="cam-rotate-slider">ROTACIÓN</label><div class="slider-track-wrap"><input type="range" id="cam-rotate-slider" min="-180" max="180" value="0" step="1"><span class="slider-val" id="cam-rotate-val">0°</span></div></div>
+        <div class="slider-row"><label class="slider-label" for="cam-spin-slider">GIRO AUTO</label><div class="slider-track-wrap"><input type="range" id="cam-spin-slider" min="-100" max="100" value="0" step="1"><span class="slider-val" id="cam-spin-val">0</span></div></div>
       </div>
 
       <!-- TEXTO PERSONALIZADO -->
@@ -268,18 +268,7 @@
         </div>
       </div>
 
-      <!-- EFECTOS -->
-      <div class="panel-section section-effects">
-        <div class="section-header"><span class="section-icon">◈</span><span>EFECTOS</span></div>
-        <div class="effects-grid">
-          <label class="effect-toggle" for="fx-vignette"><input type="checkbox" id="fx-vignette"><span class="toggle-box"></span><span class="toggle-label">VIÑETA</span></label>
-          <label class="effect-toggle" for="fx-grain"><input type="checkbox" id="fx-grain"><span class="toggle-box"></span><span class="toggle-label">GRANO</span></label>
-          <label class="effect-toggle" for="fx-scanlines"><input type="checkbox" id="fx-scanlines"><span class="toggle-box"></span><span class="toggle-label">LÍNEAS ESCANEO</span></label>
-          <label class="effect-toggle" for="fx-chromatic"><input type="checkbox" id="fx-chromatic"><span class="toggle-box"></span><span class="toggle-label" style="font-size: 8.5px; letter-spacing: 0.5px;">ABERRACIÓN CROMÁTICA</span></label>
-          <label class="effect-toggle" for="fx-glitch"><input type="checkbox" id="fx-glitch"><span class="toggle-box"></span><span class="toggle-label" style="font-size: 8.5px; letter-spacing: 0.5px;">GLITCH</span></label>
-          <label class="effect-toggle" for="fx-static"><input type="checkbox" id="fx-static"><span class="toggle-box"></span><span class="toggle-label" style="font-size: 8.5px; letter-spacing: 0.5px;">ESTÁTICA</span></label>
-        </div>
-      </div>
+
 
 
     </aside>
@@ -729,6 +718,6 @@
     <input type="number" id="seed-input" value="0">
     <button id="btn-random-seed"></button>
   </div>
-  <script src="app.js"></script>
+  <script src="app_main.js"></script>
 </body>
 </html>
